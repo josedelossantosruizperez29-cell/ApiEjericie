@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\CatalogController;
+use App\Http\Controllers\Api\GenerationController;
 use App\Http\Controllers\Api\NutritionController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\ProgressController;
@@ -12,7 +13,7 @@ Route::pattern('id', '[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}');
 Route::pattern('itemId', '[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}');
 Route::pattern('setId', '[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}');
 Route::prefix('v1')->group(function () {
-    Route::post('guests', [ProfileController::class, 'create'])->middleware('throttle:10,1');
+    Route::post('guests', [ProfileController::class, 'create'])->middleware('throttle:10,1,guests:');
     Route::middleware(['throttle:120,1', GuestAccess::class])->group(function () {
         Route::post('guests/rotate-token', [ProfileController::class, 'rotate']);
         Route::get('profile', [ProfileController::class, 'profile']);
@@ -51,13 +52,15 @@ Route::prefix('v1')->group(function () {
         Route::get('notifications/preferences', [ProgressController::class, 'reminders']);
         Route::put('notifications/preferences', [ProgressController::class, 'reminder']);
         Route::get('notifications', [ProgressController::class, 'notifications']);
+        Route::post('ai/training-plans/generate', [GenerationController::class, 'generate'])->middleware('throttle:5,1,gemini:');
+        Route::get('ai/generations/{id}', [GenerationController::class, 'show']);
         Route::get('foods', [NutritionController::class, 'foods']);
         Route::get('meals', [NutritionController::class, 'meals']);
         Route::post('meals', [NutritionController::class, 'create']);
         Route::get('meals/{id}', [NutritionController::class, 'meal']);
         Route::post('meals/{id}/items', [NutritionController::class, 'portion']);
         Route::post('meals/{id}/items/{itemId}/correct', [NutritionController::class, 'portion']);
-        Route::get('nutrition/today',[NutritionController::class, 'today']);
-        Route::get('nutrition/history',[NutritionController::class, 'history']);
+        Route::get('nutrition/today', [NutritionController::class, 'today']);
+        Route::get('nutrition/history', [NutritionController::class, 'history']);
     });
 });

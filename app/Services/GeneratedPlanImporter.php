@@ -46,6 +46,14 @@ class GeneratedPlanImporter
                         'plan.sessions.*.exercises.*.estimated_seconds' => 'required|integer|min:1|max:86400',
                     ])->validate()['plan'];
 
+                    if ($generation->request_key) {
+                        $start = app(TrainingReports::class)->today($user);
+                        if ($payload['starts_on'] < $start->toDateString() || $payload['ends_on'] > $start->addDays(6)->toDateString()
+                            || $user->trainingPlans()->where('status', 'active')->where('ends_on', '>=', $payload['starts_on'])->where('starts_on', '<=', $payload['ends_on'])->exists()) {
+                            $this->invalid('plan_window');
+                        }
+                    }
+
                     return $this->persist($user, $payload);
                 });
                 $record->forceFill(['training_plan_id' => $result->id, 'recommendation' => ['plan_version' => $result->version],

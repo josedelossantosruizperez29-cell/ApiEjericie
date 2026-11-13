@@ -20,6 +20,7 @@ use App\Services\WorkoutResults;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Symfony\Component\Process\Process;
 
 beforeEach(function () {
@@ -306,6 +307,39 @@ it('registra alimentación desconocida, corrige porción y consulta estadística
     $this->getJson('/api/v1/nutrition/today', $headers)->assertOk()->assertJsonPath('data.kcal', null);
     $this->putJson('/api/v1/notifications/preferences', ['kind' => 'training', 'timezone' => 'America/Bogota', 'local_time' => '09:30', 'enabled' => true], $headers)->assertOk();
     foreach (['statistics/overview', 'statistics/weight', 'statistics/workouts', 'statistics/streaks', 'penalties/summary', 'nutrition/history', 'workouts/week', 'notifications'] as $path) {
-        $this->getJson("/api/v1/$path",$headers)->assertOk()->assertJsonPath('success',true);
+        $this->getJson("/api/v1/$path", $headers)->assertOk()->assertJsonPath('success', true);
     }
 });
+
+it('valida Gemini por HTTP y conserva idempotencia, errores y aislamiento', function (string $case, int $status) {
+    $guest = $this->postJson('/api/v1/guests', ['age_years' => 28, 'height_cm' => 172, 'weight_kg' => 70, 'timezone' => 'UTC', 'level' => 'beginner', 'goal' => 'strength_cardio', 'weekly_availability' => [1, 2, 3, 4, 5, 6, 7], 'session_minutes' => 20, 'complete' => true])->assertCreated()->json('data');
+    $user = User::where('public_id', $guest['public_id'])->sole();
+    $headers = ['X-Guest-Id' => $guest['public_id'], 'Authorization' => 'Bearer '.$guest['token']];
+    config(['gemini.key' => $case === 'configuration' ? null : 'fixture', 'gemini.model' => 'fixture-model']);
+    $date = today()->addDay()->toDateString();
+    $item = ['id' => Exercise::where('slug', $case === 'equipment' ? 'press-sentado' : 'sentadilla')->sole()->id, 'sets' => 1, 'reps' => 5, 'rest_seconds' => 20, 'estimated_seconds' => 15];
+    if ($case === 'nonexistent') {
+        $item['id'] = fake()->uuid();
+    }
+    if ($case === 'duration') {
+        $item['estimated_seconds'] = 9000;
+    }
+    if ($case === 'availability') {
+        $user->userOnboarding->forceFill(['weekly_availability' => [today()->dayOfWeekIso]])->save();
+    }
+    $plan = ['goal_id' => $user->userGoals()->sole()->id, 'starts_on' => $date, 'ends_on' => $date, 'sessions' => [['date' => $date, 'exercises' => [$item]]]];
+    $response = ['candidates' => [['finishReason' => 'STOP', 'content' => ['parts' => [['text' => $case === 'malformed' ? 'invalid' : json_encode($plan)]]]]]];
+    Http::preventStrayRequests();
+    Http::fake(['*' => match ($case) {
+        'timeout' => Http::failedConnection(),'provider' => Http::response([], 503),default => Http::response($response)
+    }]);
+    $data = ['request_key' => fake()->uuid()];
+    $url = '/api/v1/ai/training-plans/generate';
+    $this->postJson($url, $data, $headers)->assertStatus($status);
+    $this->postJson($url, $data, $headers)->assertStatus($status);
+    expect($user->aiGenerations()->count())->toBe(1)->and($user->trainingPlans()->count())->toBe($status === 200 ? 1 : 0);
+    if ($status === 200) {
+        Http::assertSentCount(1);
+        $this->postJson($url, ['request_key' => fake()->uuid()], $headers)->assertConflict();
+    }
+})->with([['valid', 200], ['nonexistent', 422], ['equipment', 422], ['malformed', 422], ['duration', 422], ['availability', 422], ['timeout', 503], ['provider', 503], ['configuration', 503]]);

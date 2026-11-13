@@ -1,0 +1,67 @@
+{
+  "type": "object",
+  "properties": {
+    "goal_id": {
+      "type": "string"
+    },
+    "starts_on": {
+      "type": "string"
+    },
+    "ends_on": {
+      "type": "string"
+    },
+    "sessions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string"
+          },
+          "exercises": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "sets": {
+                  "type": "integer"
+                },
+                "reps": {
+                  "type": "integer"
+                },
+                "seconds": {
+                  "type": "integer"
+                },
+                "rest_seconds": {
+                  "type": "integer"
+                },
+                "estimated_seconds": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "sets",
+                "rest_seconds",
+                "estimated_seconds"
+              ]
+            }
+          }
+        },
+        "required": [
+          "date",
+          "exercises"
+        ]
+      }
+    }
+  },
+  "required": [
+    "goal_id",
+    "starts_on",
+    "ends_on",
+    "sessions"
+  ]
+}
