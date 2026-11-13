@@ -21,7 +21,7 @@ return new class extends Migration
             $table->timestampTz('last_used_at')->nullable();
             $table->timestampsTz();
         });
-        DB::statement("ALTER TABLE guest_access_tokens ENABLE ROW LEVEL SECURITY");
+        DB::statement('ALTER TABLE guest_access_tokens ENABLE ROW LEVEL SECURITY');
         DB::statement("ALTER TABLE guest_access_tokens ADD CHECK (token_hash ~ '^[0-9a-f]{64}$')");
 
         Schema::create('user_profiles', function (Blueprint $table) {
@@ -39,7 +39,7 @@ return new class extends Migration
             $table->string('activity_level')->nullable();
             $table->timestampsTz();
         });
-        DB::statement("ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY");
+        DB::statement('ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY');
         DB::statement('ALTER TABLE user_profiles ADD CHECK ((age_years IS NULL) = (age_as_of IS NULL))');
         DB::statement("ALTER TABLE user_profiles ADD CHECK (level IN ('beginner','intermediate','advanced'))");
         DB::statement('ALTER TABLE user_profiles ADD CHECK (age_years > 0)');
@@ -60,7 +60,7 @@ return new class extends Migration
             $table->timestampsTz();
             $table->unique(['id', 'user_id'], 'user_goals_u0');
         });
-        DB::statement("ALTER TABLE user_goals ENABLE ROW LEVEL SECURITY");
+        DB::statement('ALTER TABLE user_goals ENABLE ROW LEVEL SECURITY');
         DB::statement("ALTER TABLE user_goals ADD CHECK (kind IN ('fat_loss','muscle_gain','strength_cardio'))");
         DB::statement('ALTER TABLE user_goals ADD CHECK (priority >= 0)');
         DB::statement('ALTER TABLE user_goals ADD CHECK (target_value >= 0)');
@@ -78,7 +78,7 @@ return new class extends Migration
             $table->timestampTz('completed_at')->nullable();
             $table->timestampsTz();
         });
-        DB::statement("ALTER TABLE user_onboarding ENABLE ROW LEVEL SECURITY");
+        DB::statement('ALTER TABLE user_onboarding ENABLE ROW LEVEL SECURITY');
         DB::statement('ALTER TABLE user_onboarding ADD CHECK (step >= 0)');
         DB::statement('ALTER TABLE user_onboarding ADD CHECK (session_minutes > 0)');
 
@@ -94,7 +94,7 @@ return new class extends Migration
             $table->text('notes')->nullable();
             $table->timestampsTz();
         });
-        DB::statement("ALTER TABLE user_health_constraints ENABLE ROW LEVEL SECURITY");
+        DB::statement('ALTER TABLE user_health_constraints ENABLE ROW LEVEL SECURITY');
 
         Schema::create('user_preferences', function (Blueprint $table) {
             $table->uuid('id')->default(DB::raw('gen_random_uuid()'));
@@ -109,7 +109,7 @@ return new class extends Migration
             $table->jsonb('settings')->default('{}');
             $table->timestampsTz();
         });
-        DB::statement("ALTER TABLE user_preferences ENABLE ROW LEVEL SECURITY");
+        DB::statement('ALTER TABLE user_preferences ENABLE ROW LEVEL SECURITY');
         DB::statement('ALTER TABLE user_preferences ADD CHECK (max_extra_reps >= 0)');
 
     }

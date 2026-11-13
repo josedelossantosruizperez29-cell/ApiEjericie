@@ -2,6 +2,7 @@
 
 use App\Models\Exercise;
 use App\Models\MealEntry;
+use App\Models\MealEntryItem;
 use App\Models\Penalty;
 use App\Models\PenaltyRule;
 use App\Models\TrainingPlan;
@@ -10,7 +11,9 @@ use App\Models\WeightLog;
 use App\Models\WorkoutExercise;
 use App\Models\WorkoutSession;
 use App\Services\ExerciseCatalog;
+use App\Services\GeneratedPlanImporter;
 use App\Services\GuestIdentity;
+use App\Services\NutritionTotals;
 use App\Services\WorkoutCalendar;
 use App\Services\WorkoutLedger;
 use Illuminate\Database\QueryException;
@@ -210,4 +213,37 @@ it('limita las migraciones a las tablas de la aplicación y activa RLS', functio
     }
     $unprotected = DB::select("select relname from pg_class where relnamespace='public'::regnamespace and relkind='r' and not relrowsecurity");
     expect($unprotected)->toBe([]);
+});
+
+it('calcula totales con la corrección más reciente y conserva el original', function () {
+    $meal = $this->user->mealEntries()->save((new MealEntry)->forceFill(['kind' => 'lunch', 'local_date' => today(), 'eaten_at' => now(), 'timezone' => 'UTC']));
+    $portion = ['name' => 'Porción de prueba', 'quantity' => 1, 'unit' => 'unidad', 'kcal' => 100, 'protein_g' => 2, 'carbs_g' => 20, 'fat_g' => 1, 'source' => 'etiqueta', 'estimated_at' => now()];
+    $original = $meal->mealEntryItems()->save((new MealEntryItem)->forceFill($portion));
+    expect(fn () => $original->forceFill(['kcal' => 90])->save())->toThrow(QueryException::class);
+    $meal->mealEntryItems()->save((new MealEntryItem)->forceFill(['supersedes_id' => $original->id, 'kcal' => 90] + $portion));
+    $totals = app(NutritionTotals::class);
+    expect($totals->forDay($this->user, today()->toDateString())->kcal)->toBe('90.000')
+        ->and($totals->forMeal($this->user, $meal->id)->protein_g)->toBe('2.000')
+        ->and($original->fresh()->kcal)->toBe('100.000');
+});
+
+it('acepta JSON compatible y revierte el plan entero al rechazar un ejercicio', function () {
+    $date = today()->addDay();
+    DB::table('user_profiles')->insert(['user_id' => $this->user->id]);
+    DB::table('user_onboarding')->insert(['user_id' => $this->user->id, 'session_minutes' => 20, 'weekly_availability' => json_encode([$date->dayOfWeekIso])]);
+    DB::table('user_preferences')->insert(['user_id' => $this->user->id, 'settings' => '{"plan_limits":{"max_sets":2,"max_seconds_per_set":30}}']);
+    $goal = DB::table('user_goals')->insertGetId(['user_id' => $this->user->id, 'kind' => 'strength_cardio', 'start_date' => today()]);
+    $generation = fn () => DB::table('ai_generations')->insertGetId(['user_id' => $this->user->id, 'kind' => 'training_plan', 'schema_version' => '1', 'model' => 'test', 'prompt_version' => '1', 'status' => 'received', 'requested_at' => now()]);
+    $item = ['id' => Exercise::where('slug', 'plancha')->sole()->id, 'sets' => 2, 'seconds' => 15, 'rest_seconds' => 20, 'estimated_seconds' => 15];
+    $plan = ['goal_id' => $goal, 'starts_on' => $date->toDateString(), 'ends_on' => $date->toDateString(), 'sessions' => [['date' => $date->toDateString(), 'exercises' => [$item]]]];
+    $bad = $plan;
+    $bad['sessions'][0]['exercises'][] = ['id' => Exercise::where('slug', 'press-sentado')->sole()->id] + $item;
+    $importer = app(GeneratedPlanImporter::class);
+    expect($importer->import($this->user, $generation(), json_encode($bad))->validation_status)->toBe('rejected')
+        ->and($this->user->workoutSessions()->count())->toBe(0);
+    $id = $generation();
+    $result = $importer->import($this->user, $id, json_encode($plan));
+    expect($result->validation_status)->toBe('accepted')
+        ->and($importer->import($this->user, $id, json_encode($plan))->id)->toBe($result->id)
+        ->and($this->user->workoutSessions()->count())->toBe(1);
 });

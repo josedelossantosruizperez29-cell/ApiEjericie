@@ -25,7 +25,7 @@ return new class extends Migration
             $table->unique(['id', 'user_id'], 'training_plans_u1');
             $table->foreign(['goal_id', 'user_id'], 'training_plans_owner_0')->references(['id', 'user_id'])->on('user_goals');
         });
-        DB::statement("ALTER TABLE training_plans ENABLE ROW LEVEL SECURITY");
+        DB::statement('ALTER TABLE training_plans ENABLE ROW LEVEL SECURITY');
         DB::statement('ALTER TABLE training_plans ADD CHECK (ends_on >= starts_on)');
         DB::statement('ALTER TABLE training_plans ADD CHECK (version > 0)');
 
@@ -52,7 +52,7 @@ return new class extends Migration
             $table->foreign(['rescheduled_from_id', 'user_id'], 'workout_sessions_owner_1')->references(['id', 'user_id'])->on('workout_sessions');
         });
         DB::statement("CREATE UNIQUE INDEX workout_sessions_one_day ON workout_sessions (user_id, scheduled_date) WHERE status NOT IN ('cancelled','rescheduled')");
-        DB::statement("ALTER TABLE workout_sessions ENABLE ROW LEVEL SECURITY");
+        DB::statement('ALTER TABLE workout_sessions ENABLE ROW LEVEL SECURITY');
         DB::statement("ALTER TABLE workout_sessions ADD CHECK (status IN ('scheduled','in_progress','completed','missed','cancelled','rescheduled'))");
         DB::statement('ALTER TABLE workout_sessions ADD CHECK (finished_at >= started_at)');
         DB::statement("ALTER TABLE workout_sessions ADD CHECK (status <> 'completed' OR finished_at IS NOT NULL)");
@@ -74,7 +74,7 @@ return new class extends Migration
             $table->timestampsTz();
             $table->unique(['workout_session_id', 'position'], 'workout_exercises_u0');
         });
-        DB::statement("ALTER TABLE workout_exercises ENABLE ROW LEVEL SECURITY");
+        DB::statement('ALTER TABLE workout_exercises ENABLE ROW LEVEL SECURITY');
         DB::statement('ALTER TABLE workout_exercises ADD CHECK (position > 0)');
         DB::statement('ALTER TABLE workout_exercises ADD CHECK (sets > 0)');
         DB::statement('ALTER TABLE workout_exercises ADD CHECK (base_reps > 0)');
@@ -97,7 +97,7 @@ return new class extends Migration
             $table->timestampsTz();
             $table->unique(['workout_exercise_id', 'set_number'], 'exercise_set_logs_u0');
         });
-        DB::statement("ALTER TABLE exercise_set_logs ENABLE ROW LEVEL SECURITY");
+        DB::statement('ALTER TABLE exercise_set_logs ENABLE ROW LEVEL SECURITY');
         DB::statement('ALTER TABLE exercise_set_logs ADD CHECK (perceived_effort BETWEEN 1 AND 10)');
         DB::statement('ALTER TABLE exercise_set_logs ADD CHECK (set_number > 0)');
         DB::statement('ALTER TABLE exercise_set_logs ADD CHECK (reps >= 0)');
@@ -117,7 +117,7 @@ return new class extends Migration
             $table->timestampsTz();
             $table->unique(['training_plan_id', 'version'], 'training_plan_revisions_u0');
         });
-        DB::statement("ALTER TABLE training_plan_revisions ENABLE ROW LEVEL SECURITY");
+        DB::statement('ALTER TABLE training_plan_revisions ENABLE ROW LEVEL SECURITY');
         DB::statement('ALTER TABLE training_plan_revisions ADD CHECK (version > 0)');
 
         Schema::create('penalty_rules', function (Blueprint $table) {
@@ -131,7 +131,7 @@ return new class extends Migration
             $table->jsonb('conditions')->default('{}');
             $table->timestampsTz();
         });
-        DB::statement("ALTER TABLE penalty_rules ENABLE ROW LEVEL SECURITY");
+        DB::statement('ALTER TABLE penalty_rules ENABLE ROW LEVEL SECURITY');
         DB::statement('ALTER TABLE penalty_rules ADD CHECK (increment_reps >= 0)');
         DB::statement('ALTER TABLE penalty_rules ADD CHECK (max_extra_reps >= 0)');
 
@@ -155,7 +155,7 @@ return new class extends Migration
             $table->foreign(['origin_session_id', 'user_id'], 'penalties_owner_0')->references(['id', 'user_id'])->on('workout_sessions');
             $table->foreign(['resolved_session_id', 'user_id'], 'penalties_owner_1')->references(['id', 'user_id'])->on('workout_sessions');
         });
-        DB::statement("ALTER TABLE penalties ENABLE ROW LEVEL SECURITY");
+        DB::statement('ALTER TABLE penalties ENABLE ROW LEVEL SECURITY');
         DB::statement("ALTER TABLE penalties ADD CHECK ((status = 'pending' AND resolved_at IS NULL AND resolved_session_id IS NULL) OR (status = 'resolved' AND resolved_at IS NOT NULL AND resolved_session_id IS NOT NULL AND origin_session_id <> resolved_session_id))");
 
         Schema::create('workout_penalty_applications', function (Blueprint $table) {
@@ -171,7 +171,7 @@ return new class extends Migration
             $table->string('reason');
             $table->timestampsTz();
         });
-        DB::statement("ALTER TABLE workout_penalty_applications ENABLE ROW LEVEL SECURITY");
+        DB::statement('ALTER TABLE workout_penalty_applications ENABLE ROW LEVEL SECURITY');
         DB::statement('ALTER TABLE workout_penalty_applications ADD CHECK (pending_count >= 0)');
 
     }
