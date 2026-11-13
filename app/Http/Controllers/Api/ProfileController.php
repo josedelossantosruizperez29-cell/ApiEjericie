@@ -32,7 +32,7 @@ class ProfileController
 
     public function profile(Request $r)
     {
-        return new ApiResult($r->user()->load('userProfile', 'userGoals', 'availableEquipment')->only(['public_id', 'name', 'last_name', 'userProfile', 'userGoals', 'availableEquipment']));
+        return new ApiResult($r->user()->refresh()->load('userProfile', 'userGoals', 'availableEquipment')->only(['public_id', 'name', 'last_name', 'userProfile', 'userGoals', 'availableEquipment']));
     }
 
     public function update(ProfileRequest $r, ProfileEditor $editor)

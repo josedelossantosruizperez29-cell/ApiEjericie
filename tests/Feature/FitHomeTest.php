@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Exercise;
+use App\Models\FoodItem;
 use App\Models\MealEntry;
 use App\Models\MealEntryItem;
 use App\Models\Penalty;
@@ -343,3 +344,35 @@ it('valida Gemini por HTTP y conserva idempotencia, errores y aislamiento', func
         $this->postJson($url, ['request_key' => fake()->uuid()], $headers)->assertConflict();
     }
 })->with([['valid', 200], ['nonexistent', 422], ['equipment', 422], ['malformed', 422], ['duration', 422], ['availability', 422], ['timeout', 503], ['provider', 503], ['configuration', 503]]);
+
+it('conserva resultados parciales al vencer y rechaza series ajenas', function () {
+    $session = fitSession($this->plan, 0);
+    $item = $session->workoutExercises()->save((new WorkoutExercise)->forceFill(['exercise_id' => Exercise::where('slug', 'plancha')->sole()->id, 'position' => 1, 'sets' => 2, 'duration_seconds' => 15, 'prescription' => ['measurement' => 'time']]));
+    $this->ledger->start($this->user, $session->id);
+    $headers = ['X-Guest-Id' => $this->user->public_id, 'Authorization' => 'Bearer '.app(GuestIdentity::class)->issue($this->user)];
+    $url = '/api/v1/workouts/'.$session->id.'/sets';
+    $data = ['workout_exercise_id' => $item->id, 'set_number' => 1];
+    $this->postJson($url, $data + ['reps' => 15], $headers)->assertUnprocessable();
+    $this->postJson($url, ['workout_exercise_id' => fake()->uuid()] + $data + ['duration_seconds' => 15], $headers)->assertNotFound();
+    $this->postJson($url, $data + ['duration_seconds' => 15], $headers)->assertCreated();
+    $this->travel(2)->days();
+    $this->ledger->reconcile($this->user);
+    expect($session->fresh()->status)->toBe('missed')->and($item->exerciseSetLogs()->count())->toBe(1)->and($this->user->penalties()->count())->toBe(1);
+    $this->travelBack();
+});
+
+it('solo usa referencias verificables en las comidas y aísla el historial', function () {
+    $food = FoodItem::where('slug', 'fixture-label')->first() ?? FoodItem::forceCreate(['slug' => 'fixture-label', 'name' => 'Prueba', 'reference_unit' => 'g', 'reference_quantity' => 100, 'kcal' => 50, 'protein_g' => 2, 'carbs_g' => 5, 'fat_g' => 1, 'source' => 'fixture', 'verification' => 'verified', 'source_date' => today()]);
+    $guest = $this->postJson('/api/v1/guests')->json('data');
+    $headers = ['X-Guest-Id' => $guest['public_id'], 'Authorization' => 'Bearer '.$guest['token']];
+    $id = $this->postJson('/api/v1/meals', ['kind' => 'breakfast', 'eaten_at' => now()->toIso8601String()], $headers)->json('data.id');
+    $url = "/api/v1/meals/$id/items";
+    $this->postJson($url, ['food_item_id' => $food->id, 'quantity' => -1, 'unit' => 'g'], $headers)->assertUnprocessable();
+    $this->postJson($url, ['food_item_id' => $food->id, 'quantity' => 150, 'unit' => 'g'], $headers)->assertCreated();
+    $this->getJson('/api/v1/nutrition/today', $headers)->assertJsonPath('data.kcal', '75.000');
+    $other = ['X-Guest-Id' => $this->user->public_id, 'Authorization' => 'Bearer '.app(GuestIdentity::class)->issue($this->user)];
+    $this->getJson("/api/v1/meals/$id", $other)->assertNotFound();
+    $this->postJson('/api/v1/weight-logs', ['weight_kg' => 75, 'measured_at' => now()->toIso8601String()], $headers)->assertCreated();
+    $this->getJson('/api/v1/statistics/weight', $headers)->assertJsonPath('data.latest.weight_kg', '75.000');
+    $this->getJson('/api/v1/weight-logs', $other)->assertJsonPath('data.total', 0);
+});

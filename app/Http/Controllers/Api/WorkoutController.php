@@ -22,12 +22,12 @@ class WorkoutController
     {
         $day = $reports->today($r->user())->toDateString();
 
-        return new ApiResult($r->user()->trainingPlans()->with('goal', 'workoutSessions')->whereIn('status', ['active', 'draft'])->where('starts_on', '<=', $day)->where('ends_on', '>=', $day)->orderByDesc('version')->first());
+        return new ApiResult($r->user()->trainingPlans()->with(['goal', 'workoutSessions' => fn ($q) => $q->with(TrainingReports::DETAILS)])->where('status', 'active')->where('starts_on', '<=', $day)->where('ends_on', '>=', $day)->orderByDesc('version')->first());
     }
 
     public function plan(Request $r, string $id)
     {
-        return new ApiResult($r->user()->trainingPlans()->with('goal', 'workoutSessions')->findOrFail($id));
+        return new ApiResult($r->user()->trainingPlans()->with(['goal', 'workoutSessions' => fn ($q) => $q->with(TrainingReports::DETAILS)])->findOrFail($id));
     }
 
     public function today(Request $r, TrainingReports $reports)
@@ -67,6 +67,6 @@ class WorkoutController
 
     public function move(MoveRequest $r, string $id, WorkoutCalendar $calendar)
     {
-        return new ApiResult($calendar->change($r->user(),$id,$r->validated('date'),$r->validated('reason')));
+        return new ApiResult($calendar->change($r->user(), $id, $r->validated('date'), $r->validated('reason')));
     }
 }

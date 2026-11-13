@@ -6,7 +6,7 @@ Laravel 13 utiliza las tablas de aplicación en `public`. El backend conserva el
 
 1. Completa en el entorno del servidor las variables de [.env.example](../.env.example). En el panel **Connect** del proyecto existente copia el host, usuario, puerto y base exactos. Para migraciones utiliza conexión directa. Si solo tienes IPv4, usa los datos de **Session pooler**. [Conexiones de Supabase](https://supabase.com/docs/guides/database/connecting-to-postgres)
 2. Utiliza `DB_SSLMODE=require` como mínimo. Con la CA del proyecto y un hostname verificable configura `DB_SSLMODE=verify-full` y `DB_SSLROOTCERT`. Comprueba también cualquier `DB_URL` ya configurada, porque puede prevalecer sobre los campos individuales. Las credenciales pertenecen al servidor Laravel.
-3. Desde la raíz ejecuta la inspección siguiente. Comprueba que las cuatro migraciones originales figuren aplicadas y que las siete de Fit Home estén pendientes antes del primer despliegue.
+3. Desde la raíz ejecuta la inspección siguiente. Comprueba que las cuatro migraciones originales figuren aplicadas y que las ocho de Fit Home estén pendientes antes del primer despliegue.
 
 ```sh
 php artisan config:clear
@@ -23,13 +23,13 @@ php artisan migrate:status
 php artisan schedule:list
 ```
 
-La primera migración protege las diez tablas originales de Laravel mediante RLS. Las siguientes adaptan usuarios invitados y crean el catálogo, los perfiles, los entrenamientos y el seguimiento. Cada tabla nueva activa RLS dentro de la transacción que la crea. El último paso protege las instantáneas nutricionales contra ediciones. El rol propietario de Laravel conserva acceso, y los clientes pasan por Laravel. Un rol de ejecución distinto del propietario necesita grants y políticas propios. Revisa en el panel si la Data API debe estar habilitada. [Seguridad de la Data API](https://supabase.com/docs/guides/api/securing-your-api)
+La primera migración protege las diez tablas originales de Laravel mediante RLS. Las siguientes adaptan usuarios invitados y crean el catálogo, los perfiles, los entrenamientos y el seguimiento. Cada tabla nueva activa RLS dentro de la transacción que la crea. Las siguientes migraciones protegen las instantáneas nutricionales y añaden cumplimiento de jornadas, claves de idempotencia y nutrientes desconocidos. El rol propietario de Laravel conserva acceso, y los clientes pasan por Laravel. Un rol de ejecución distinto del propietario necesita grants y políticas propios. Revisa en el panel si la Data API debe estar habilitada. [Seguridad de la Data API](https://supabase.com/docs/guides/api/securing-your-api)
 
 El catálogo se puede cargar de nuevo. Revertir una migración de creación elimina los datos de esas tablas. La reversión del cambio de invitados requiere que los usuarios existentes tengan correo y contraseña para restablecer las restricciones originales. [Orden y contenido de los seeders](../database/seeders/README.md)
 
 ## Identidad, agenda y saldo
 
-`GuestIdentity::issue` emite un secreto aleatorio de 256 bits. La tabla guarda su SHA-256. La autenticación requiere el UUID público y el secreto vigente. Flutter deberá guardar el secreto en almacenamiento seguro. La API futura deberá obtener el usuario de la credencial y pasar ese usuario a los servicios.
+`GuestIdentity::issue` emite un secreto aleatorio de 256 bits. La tabla guarda su SHA-256. La autenticación requiere el UUID público y el secreto vigente. Flutter deberá guardar el secreto en almacenamiento seguro. El middleware de la API autentica la credencial y pasa el usuario a los servicios.
 
 `WorkoutCalendar` convierte el día y la hora límite locales en un instante UTC y conserva la zona. Solo existe una jornada vigente por usuario y fecha. Una reprogramación guarda la sesión anterior, copia su prescripción y registra el motivo en la revisión del plan. Las jornadas de descanso se representan con `kind=rest`.
 
@@ -48,7 +48,7 @@ El inicio del entrenamiento congela la adaptación de cada ejercicio. El valor n
 
 `GeneratedPlanImporter::import` recibe un usuario autenticado, una generación de tipo `training_plan` con `schema_version=1` y el JSON recibido. Valida claves admitidas, objetivo activo, fechas, disponibilidad, equipo, restricciones, nivel y límites. Persiste el plan y todas sus sesiones de forma atómica o registra el motivo de rechazo. Un reintento de la misma generación devuelve la decisión guardada. El importador acepta ejercicios por repeticiones y tiempo. El esquema de persistencia admite también distancias.
 
-La disponibilidad semanal contiene números ISO del 1 (lunes) al 7. Configura la duración en `user_onboarding.session_minutes`, los límites por nivel en `exercises.rep_limits` y los límites de programación en `user_preferences.settings.plan_limits` (`max_sets`, `max_seconds_per_set` y `seconds_per_rep`). La prueba de importación incluye una carga JSON completa. El modelo y la versión del prompt se registran en la generación. El cliente HTTP de Gemini queda para la siguiente etapa.
+La disponibilidad semanal contiene números ISO del 1 (lunes) al 7. Configura la duración en `user_onboarding.session_minutes`, los límites por nivel en `exercises.rep_limits` y los límites de programación en `user_preferences.settings.plan_limits` (`max_sets`, `max_seconds_per_set` y `seconds_per_rep`). La prueba de importación incluye una carga JSON completa. El modelo y la versión del prompt se registran en la generación. El cliente HTTP de Gemini genera propuestas mediante el endpoint de generación. Consulta el [contrato HTTP](api-v1.md).
 
 Los alimentos y porciones conservan su fuente y precisión decimal. Corrige una porción con una nueva fila cuyo `supersedes_id` apunta a la versión anterior de la misma comida. `NutritionTotals` suma únicamente las versiones vigentes del usuario. Las rachas se reconstruyen por fecha local desde los eventos y las jornadas de descanso del calendario. El cumplimiento semanal se calcula a partir de las sesiones y sus estados, y el peso y las medidas se consultan por fecha de medición.
 

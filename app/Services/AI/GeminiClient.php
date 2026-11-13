@@ -43,6 +43,6 @@ class GeminiClient
 
             return [$text, array_intersect_key($response->json('usageMetadata', []), array_flip(['promptTokenCount', 'candidatesTokenCount', 'totalTokenCount']))];
         }
-        throw new HttpException(503,'provider_error');
+        throw new HttpException(503, 'provider_error');
     }
 }

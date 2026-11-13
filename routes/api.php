@@ -7,7 +7,10 @@ use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\ProgressController;
 use App\Http\Controllers\Api\WorkoutController;
 use App\Http\Middleware\GuestAccess;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+
+Route::get('/user', fn (Request $request) => $request->user())->middleware('auth:sanctum');
 
 Route::pattern('id', '[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}');
 Route::pattern('itemId', '[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}');

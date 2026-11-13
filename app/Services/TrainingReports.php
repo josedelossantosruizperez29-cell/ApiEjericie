@@ -64,6 +64,6 @@ class TrainingReports
         $date = $this->today($u)->toDateString();
 
         return ['name' => $u->name, 'goal' => $u->userGoals()->where('status', 'active')->orderBy('priority')->first(), 'weight_kg' => $u->weightLogs()->latest('measured_at')->value('weight_kg'), 'next_session' => $this->next($u),
-            'today' => $u->workoutSessions()->with(self::DETAILS)->where('scheduled_date', $date)->whereNotIn('status', ['cancelled', 'rescheduled'])->first(), 'weekly' => $this->adherence($u), 'streak' => $this->streak($u), 'pending_penalties' => $u->penalties()->where('status', 'pending')->count(), 'nutrition' => app(NutritionTotals::class)->forDay($u, $date), 'next_notification' => $u->notificationEvents()->where('status', 'scheduled')->where('scheduled_at','>=',now())->orderBy('scheduled_at')->first()];
+            'today' => $u->workoutSessions()->with(self::DETAILS)->where('scheduled_date', $date)->whereNotIn('status', ['cancelled', 'rescheduled'])->first(), 'weekly' => $this->adherence($u), 'streak' => $this->streak($u), 'pending_penalties' => $u->penalties()->where('status', 'pending')->count(), 'nutrition' => app(NutritionTotals::class)->forDay($u, $date), 'next_notification' => $u->notificationEvents()->where('status', 'scheduled')->where('scheduled_at', '>=', now())->orderBy('scheduled_at')->first()];
     }
 }

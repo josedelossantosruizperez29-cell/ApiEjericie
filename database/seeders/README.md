@@ -12,7 +12,8 @@ Artisan invoca `DatabaseSeeder::run()`. La carga completa comparte una transacci
 | 4–5 | MachineExerciseSeeder y BodyweightExerciseSeeder | Seis ejercicios de máquina y veinte de entrenamiento en casa |
 | 6 | ExerciseMuscleGroupSeeder | Un músculo principal y uno secundario por ejercicio, y alternativas cuando están definidas |
 | 7 | ExerciseEquipmentSeeder | Equipo y capacidad necesarios para cada ejercicio de máquina |
-| 8 | PenaltyRulesSeeder | Regla diaria FIFO con incremento nominal de cinco repeticiones |
+| 8 | PlanningLimitsSeeder | Inicializa los límites por nivel de ejercicios activos de repeticiones sin límites previos |
+| 9 | PenaltyRulesSeeder | Regla diaria FIFO con incremento nominal de cinco repeticiones |
 
 ## Invariantes y efectos
 

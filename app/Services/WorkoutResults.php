@@ -33,7 +33,7 @@ class WorkoutResults
             }
             if ($log && ! $setId) {
                 foreach ($data as $key => $value) {
-                    if ($value != $log->$key) {
+                    if (($value === null) !== ($log->$key === null) || $value != $log->$key) {
                         throw new DomainException('La serie ya existe con otro resultado.');
                     }
                 }

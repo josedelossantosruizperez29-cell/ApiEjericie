@@ -19,6 +19,7 @@ class PlanGeneration
     {
         $generation = DB::transaction(function () use ($user, $key) {
             User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+            $user->aiGenerations()->where('status', 'processing')->where('requested_at', '<=', now()->subMinutes(3))->update(['status' => 'failed', 'error_code' => 'interrupted']);
             $previous = $user->aiGenerations()->where('request_key', $key)->first();
             if ($previous) {
                 return $previous;
