@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\GuestAccessToken;
 use App\Models\User;
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -20,6 +21,21 @@ class GuestIdentity
         $user->guestAccessTokens()->save($token);
 
         return $secret;
+    }
+
+    public function rotate(User $user, #[\SensitiveParameter] string $secret): string
+    {
+        return DB::transaction(function () use ($user, $secret) {
+            $old = $user->guestAccessTokens()->where('token_hash', hash('sha256', $secret))->whereNull('revoked_at')
+                ->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))->lockForUpdate()->first();
+            if (! $old) {
+                throw new AuthenticationException;
+            }
+            $old->revoked_at = now();
+            $old->save();
+
+            return $this->issue($user, $old->device_label);
+        });
     }
 
     public function authenticate(string $publicId, #[\SensitiveParameter] string $secret): ?User

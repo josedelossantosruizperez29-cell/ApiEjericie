@@ -73,11 +73,11 @@ class GeneratedPlanImporter
             $this->invalid('user_context');
         }
         $plan = $user->trainingPlans()->save((new TrainingPlan)->forceFill([
-            'goal_id' => $goal->id, 'starts_on' => $payload['starts_on'], 'ends_on' => $payload['ends_on'], 'source' => 'ai',
+            'goal_id' => $goal->id, 'starts_on' => $payload['starts_on'], 'ends_on' => $payload['ends_on'], 'source' => 'ai', 'status' => 'active',
             'version' => 1 + $user->trainingPlans()->where('starts_on', $payload['starts_on'])->max('version'),
         ]));
         $catalog = app(ExerciseCatalog::class)->eligible($user)->get()->keyBy('id');
-        $limits = $user->userPreference?->settings['plan_limits'] ?? [];
+        $limits = ($user->userPreference?->settings['plan_limits'] ?? []) + config('training.levels.'.$user->userProfile->level) + config('training');
         foreach ($payload['sessions'] as $day) {
             $date = CarbonImmutable::parse($day['date']);
             if (! in_array($date->dayOfWeekIso, $onboarding->weekly_availability, true)
@@ -88,12 +88,15 @@ class GeneratedPlanImporter
             $duration = 0;
             foreach ($day['exercises'] as $i => $item) {
                 $exercise = $catalog->get($item['id']);
+                if ($item['rest_seconds'] < $limits['min_rest_seconds'] || $item['rest_seconds'] > $limits['max_rest_seconds']) {
+                    $this->invalid('rest_seconds');
+                }
                 if (! $exercise || $item['sets'] > ($limits['max_sets'] ?? 0)) {
                     $this->invalid('exercise');
                 }
                 $seconds = $item['seconds'] ?? null;
                 $reps = $item['reps'] ?? null;
-                $repLimit = $exercise->rep_limits[$user->userProfile->level] ?? 0;
+                $repLimit = $exercise->rep_limits[$user->userProfile->level] ?? $limits['max_reps'];
                 if ($exercise->measurement === 'reps' && $reps && ! $seconds && $reps <= $repLimit) {
                     $work = max($item['estimated_seconds'], $reps * max(1, (int) ($limits['seconds_per_rep'] ?? 1)));
                 } elseif ($exercise->measurement === 'time' && $seconds && ! $reps && $seconds <= ($limits['max_seconds_per_set'] ?? 0)) {
@@ -107,7 +110,7 @@ class GeneratedPlanImporter
                 }
                 $session->workoutExercises()->save((new WorkoutExercise)->forceFill([
                     'exercise_id' => $exercise->id, 'position' => $i + 1, 'sets' => $item['sets'], 'base_reps' => $reps, 'duration_seconds' => $seconds,
-                    'rest_seconds' => $item['rest_seconds'], 'prescription' => $item + ['name' => $exercise->name, 'measurement' => $exercise->measurement],
+                    'rest_seconds' => $item['rest_seconds'], 'prescription' => $item + ['limits_source' => config('training.source'), 'limits_effective_from' => config('training.effective_from'), 'name' => $exercise->name, 'measurement' => $exercise->measurement],
                 ]));
             }
         }

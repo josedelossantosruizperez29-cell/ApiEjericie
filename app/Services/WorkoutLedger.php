@@ -50,8 +50,8 @@ class WorkoutLedger
                 return $session;
             }
             $this->assertPlayable($session);
-            if ($session->status === 'scheduled') {
-                $this->snapshotAdjustments($user->fresh(), $session);
+            if ($session->status !== 'in_progress' || ! $session->started_at || ! app(WorkoutResults::class)->progress($session)['fulfilled']) {
+                throw new DomainException('La jornada requiere inicio y series válidas suficientes.');
             }
             $session->forceFill(['status' => 'completed', 'finished_at' => now()])->save();
             $oldest = $user->penalties()->where('status', 'pending')

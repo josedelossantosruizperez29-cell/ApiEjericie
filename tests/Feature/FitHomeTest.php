@@ -16,6 +16,7 @@ use App\Services\GuestIdentity;
 use App\Services\NutritionTotals;
 use App\Services\WorkoutCalendar;
 use App\Services\WorkoutLedger;
+use App\Services\WorkoutResults;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -59,6 +60,13 @@ function fitSession(TrainingPlan $plan, int $daysAgo, string $kind = 'strength',
     ]))->refresh();
 }
 
+function fitRecordWorkout(User $user, WorkoutSession $session): void
+{
+    $item = $session->workoutExercises()->save((new WorkoutExercise)->forceFill(['exercise_id' => Exercise::where('slug', 'sentadilla')->sole()->id, 'position' => 1, 'sets' => 1, 'base_reps' => 5, 'prescription' => ['measurement' => 'reps']]));
+    app(WorkoutLedger::class)->start($user, $session->id);
+    app(WorkoutResults::class)->record($user, $session->id, ['workout_exercise_id' => $item->id, 'set_number' => 1, 'reps' => 5]);
+}
+
 it('carga los 26 ejercicios y preserva sus identificadores y relaciones al repetir seeders', function () {
     $slugs = explode(' ', 'press-sentado mariposa jalon remo extension-piernas curl-predicador flexion flexion-rodillas flexion-inclinada sentadilla zancada zancada-atras puente talones plancha plancha-lateral dead-bug bird-dog jumping-jacks salto-estrella escaladores rodillas-altas marcha burpee sentadilla-salto jacks-sin-salto');
     $ids = Exercise::whereIn('slug', $slugs)->orderBy('slug')->pluck('id')->all();
@@ -98,6 +106,7 @@ it('reconcilia omisiones y descuenta exactamente una deuda FIFO por jornada comp
     $pending = fn () => $this->user->penalties()->where('status', 'pending')->count();
     expect($pending())->toBe(3);
     $today = fitSession($this->plan, 0);
+    fitRecordWorkout($this->user, $today);
     $this->ledger->complete($this->user, $today->id);
     $this->ledger->complete($this->user, $today->id);
     expect($pending())->toBe(2)->and($oldest->penaltyOriginSession->resolved_session_id)->toBe($today->id);
@@ -175,6 +184,9 @@ it('serializa procesos PostgreSQL concurrentes durante omisión y resolución', 
     fitSession($this->plan, 1);
     $today = fitSession($this->plan, 0);
     foreach (['reconcile', 'complete'] as $operation) {
+        if ($operation === 'complete') {
+            fitRecordWorkout($this->user, $today);
+        }
         $workers = [];
         DB::beginTransaction();
         try {
