@@ -1,3 +1,11 @@
+# Fit Home
+
+API Laravel para entrenamiento en casa, alimentación y seguimiento del progreso.
+
+- [Configuración, migraciones y pruebas PostgreSQL](docs/fit-home.md)
+- [Esquema relacional y diagrama Mermaid](docs/esquema.md)
+- [Catálogo inicial de ejercicios](database/seeders/README.md)
+
 <p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
 
 <p align="center">
