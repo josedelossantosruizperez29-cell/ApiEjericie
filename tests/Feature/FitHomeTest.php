@@ -259,3 +259,53 @@ it('acepta JSON compatible y revierte el plan entero al rechazar un ejercicio', 
         ->and($importer->import($this->user, $id, json_encode($plan))->id)->toBe($result->id)
         ->and($this->user->workoutSessions()->count())->toBe(1);
 });
+
+it('crea, rota y expira credenciales por HTTP y conserva onboarding por etapas', function () {
+    $guest = $this->postJson('/api/v1/guests', ['name' => 'Ana', 'weight_kg' => 72])->assertCreated()->json('data');
+    $headers = ['X-Guest-Id' => $guest['public_id'], 'Authorization' => 'Bearer '.$guest['token']];
+    $this->getJson('/api/v1/profile', ['X-Guest-Id' => $guest['public_id'], 'Authorization' => 'Bearer wrong'])->assertUnauthorized();
+    $this->postJson('/api/v1/onboarding', ['height_cm' => 170, 'age_years' => 30, 'goal' => 'strength_cardio'], $headers)->assertOk();
+    $this->postJson('/api/v1/onboarding', ['session_minutes' => 20, 'weekly_availability' => [1, 3], 'complete' => true], $headers)->assertOk();
+    $this->getJson('/api/v1/weight-logs', $headers)->assertJsonPath('data.total', 1);
+    $this->getJson('/api/v1/dashboard', $headers)->assertOk()->assertJsonPath('data.name', 'Ana');
+    $this->getJson('/api/v1/exercises?level=beginner&category=machine', $headers)->assertOk()->assertJsonPath('data.total', 5);
+    $new = $this->postJson('/api/v1/guests/rotate-token', [], $headers)->assertOk()->json('data.token');
+    $this->getJson('/api/v1/profile', $headers)->assertUnauthorized();
+    $headers['Authorization'] = 'Bearer '.$new;
+    $this->getJson('/api/v1/profile', $headers)->assertOk();
+    DB::table('guest_access_tokens')->where('token_hash', hash('sha256', $new))->update(['expires_at' => now()->subMinute()]);
+    $this->getJson('/api/v1/profile', $headers)->assertUnauthorized();
+});
+
+it('exige series válidas HTTP y aísla jornadas', function () {
+    $headers = ['X-Guest-Id' => $this->user->public_id, 'Authorization' => 'Bearer '.app(GuestIdentity::class)->issue($this->user)];
+    $session = fitSession($this->plan, 0);
+    $url = '/api/v1/workouts/'.$session->id;
+    $this->postJson("$url/complete", [], $headers)->assertConflict();
+    $this->postJson("$url/start", [], $headers)->assertOk();
+    $this->postJson("$url/complete", [], $headers)->assertConflict();
+    $item = $session->workoutExercises()->save((new WorkoutExercise)->forceFill(['exercise_id' => Exercise::where('slug', 'sentadilla')->sole()->id, 'position' => 1, 'sets' => 2, 'base_reps' => 5, 'prescription' => ['measurement' => 'reps']]));
+    $payload = ['workout_exercise_id' => $item->id, 'set_number' => 1, 'reps' => 5];
+    $this->postJson("$url/sets", $payload, $headers)->assertCreated();
+    $this->postJson("$url/sets", $payload, $headers)->assertOk();
+    $this->postJson("$url/complete", [], $headers)->assertConflict();
+    $this->postJson("$url/sets", ['set_number' => 2] + $payload, $headers)->assertCreated();
+    $this->postJson("$url/complete", [], $headers)->assertOk()->assertJsonPath('data.status', 'completed');
+    $other = User::create(['name' => 'Otro'])->refresh();
+    $this->getJson($url, ['X-Guest-Id' => $other->public_id, 'Authorization' => 'Bearer '.app(GuestIdentity::class)->issue($other)])->assertNotFound();
+});
+
+it('registra alimentación desconocida, corrige porción y consulta estadísticas HTTP', function () {
+    $headers = ['X-Guest-Id' => $this->user->public_id, 'Authorization' => 'Bearer '.app(GuestIdentity::class)->issue($this->user)];
+    $id = $this->postJson('/api/v1/meals', ['kind' => 'lunch', 'eaten_at' => now()->toIso8601String()], $headers)->assertCreated()->json('data.id');
+    $payload = ['name' => 'Arroz', 'quantity' => 150, 'unit' => 'g'];
+    $url = "/api/v1/meals/$id/items";
+    $item = $this->postJson($url, $payload, $headers)->assertCreated()->json('data.id');
+    $this->postJson("$url/$item/correct", ['quantity' => 200] + $payload, $headers)->assertCreated();
+    $this->postJson("$url/$item/correct", $payload, $headers)->assertConflict();
+    $this->getJson('/api/v1/nutrition/today', $headers)->assertOk()->assertJsonPath('data.kcal', null);
+    $this->putJson('/api/v1/notifications/preferences', ['kind' => 'training', 'timezone' => 'America/Bogota', 'local_time' => '09:30', 'enabled' => true], $headers)->assertOk();
+    foreach (['statistics/overview', 'statistics/weight', 'statistics/workouts', 'statistics/streaks', 'penalties/summary', 'nutrition/history', 'workouts/week', 'notifications'] as $path) {
+        $this->getJson("/api/v1/$path",$headers)->assertOk()->assertJsonPath('success',true);
+    }
+});

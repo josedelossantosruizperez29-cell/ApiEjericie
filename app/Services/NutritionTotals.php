@@ -20,13 +20,18 @@ class NutritionTotals
         return $this->totals($user)->where('meal_entries.id', $meal->id)->first();
     }
 
+    public function history(User $user)
+    {
+        return $this->totals($user)->addSelect('meal_entries.local_date')->groupBy('meal_entries.local_date')->orderByDesc('meal_entries.local_date')->paginate(30);
+    }
+
     private function totals(User $user): Builder
     {
         return DB::table('meal_entries')->join('meal_entry_items as item', 'item.meal_entry_id', '=', 'meal_entries.id')
             ->where('meal_entries.user_id', $user->id)
             ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('meal_entry_items as correction')
                 ->whereColumn('correction.supersedes_id', 'item.id'))
-            ->selectRaw('COALESCE(SUM(item.kcal),0) AS kcal, COALESCE(SUM(item.protein_g),0) AS protein_g,
-                COALESCE(SUM(item.carbs_g),0) AS carbs_g, COALESCE(SUM(item.fat_g),0) AS fat_g');
+            ->selectRaw('CASE WHEN COUNT(item.id)=COUNT(item.kcal) THEN COALESCE(SUM(item.kcal),0) END AS kcal, CASE WHEN COUNT(item.id)=COUNT(item.protein_g) THEN COALESCE(SUM(item.protein_g),0) END AS protein_g,
+                CASE WHEN COUNT(item.id)=COUNT(item.carbs_g) THEN COALESCE(SUM(item.carbs_g),0) END AS carbs_g, CASE WHEN COUNT(item.id)=COUNT(item.fat_g) THEN COALESCE(SUM(item.fat_g),0) END AS fat_g');
     }
 }

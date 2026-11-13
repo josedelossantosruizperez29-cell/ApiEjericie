@@ -1,8 +1,63 @@
 <?php
 
-use Illuminate\Http\Request;
+use App\Http\Controllers\Api\CatalogController;
+use App\Http\Controllers\Api\NutritionController;
+use App\Http\Controllers\Api\ProfileController;
+use App\Http\Controllers\Api\ProgressController;
+use App\Http\Controllers\Api\WorkoutController;
+use App\Http\Middleware\GuestAccess;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/user', function (Request $request) {
-    return $request->user();
-})->middleware('auth:sanctum');
+Route::pattern('id', '[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}');
+Route::pattern('itemId', '[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}');
+Route::pattern('setId', '[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}');
+Route::prefix('v1')->group(function () {
+    Route::post('guests', [ProfileController::class, 'create'])->middleware('throttle:10,1');
+    Route::middleware(['throttle:120,1', GuestAccess::class])->group(function () {
+        Route::post('guests/rotate-token', [ProfileController::class, 'rotate']);
+        Route::get('profile', [ProfileController::class, 'profile']);
+        Route::put('profile', [ProfileController::class, 'update']);
+        Route::get('onboarding', [ProfileController::class, 'onboarding']);
+        Route::post('onboarding', [ProfileController::class, 'onboard']);
+        Route::get('preferences', [ProfileController::class, 'preferences']);
+        Route::put('preferences', [ProfileController::class, 'savePreferences']);
+        Route::put('profile/equipment', [ProfileController::class, 'equipment']);
+        Route::get('equipment', [CatalogController::class, 'equipment']);
+        Route::get('exercises', [CatalogController::class, 'exercises']);
+        Route::get('exercises/eligible', [CatalogController::class, 'exercises'])->name('eligible');
+        Route::get('exercises/{id}', [CatalogController::class, 'exercise']);
+        Route::get('training-plans', [WorkoutController::class, 'plans']);
+        Route::get('training-plans/current', [WorkoutController::class, 'current']);
+        Route::get('training-plans/{id}', [WorkoutController::class, 'plan']);
+        Route::get('workouts/today', [WorkoutController::class, 'today']);
+        Route::get('workouts/week', [WorkoutController::class, 'week']);
+        Route::get('workouts/{id}', [WorkoutController::class, 'show']);
+        Route::post('workouts/{id}/start', [WorkoutController::class, 'start']);
+        Route::post('workouts/{id}/sets', [WorkoutController::class, 'sets']);
+        Route::put('workouts/{id}/sets/{setId}', [WorkoutController::class, 'sets']);
+        Route::post('workouts/{id}/complete', [WorkoutController::class, 'complete']);
+        Route::get('workouts/{id}/progress', [WorkoutController::class, 'progress']);
+        Route::post('workouts/{id}/reschedule', [WorkoutController::class, 'move']);
+        Route::get('penalties', [ProgressController::class, 'penalties']);
+        Route::get('penalties/history', [ProgressController::class, 'penalties'])->name('penalty-history');
+        Route::get('penalties/summary', [ProgressController::class, 'summary']);
+        Route::get('dashboard', [ProgressController::class, 'dashboard']);
+        Route::post('weight-logs', [ProgressController::class, 'weight']);
+        Route::get('weight-logs', [ProgressController::class, 'weights']);
+        Route::get('statistics/overview', [ProgressController::class, 'dashboard']);
+        Route::get('statistics/weight', [ProgressController::class, 'weightStats']);
+        Route::get('statistics/workouts', [ProgressController::class, 'workouts']);
+        Route::get('statistics/streaks', [ProgressController::class, 'streaks']);
+        Route::get('notifications/preferences', [ProgressController::class, 'reminders']);
+        Route::put('notifications/preferences', [ProgressController::class, 'reminder']);
+        Route::get('notifications', [ProgressController::class, 'notifications']);
+        Route::get('foods', [NutritionController::class, 'foods']);
+        Route::get('meals', [NutritionController::class, 'meals']);
+        Route::post('meals', [NutritionController::class, 'create']);
+        Route::get('meals/{id}', [NutritionController::class, 'meal']);
+        Route::post('meals/{id}/items', [NutritionController::class, 'portion']);
+        Route::post('meals/{id}/items/{itemId}/correct', [NutritionController::class, 'portion']);
+        Route::get('nutrition/today',[NutritionController::class, 'today']);
+        Route::get('nutrition/history',[NutritionController::class, 'history']);
+    });
+});
