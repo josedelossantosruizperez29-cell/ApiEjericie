@@ -21,6 +21,7 @@ return new class extends Migration
             $table->boolean('active')->default(true);
             $table->timestampsTz();
         });
+        DB::statement("ALTER TABLE equipment ENABLE ROW LEVEL SECURITY");
 
         Schema::create('equipment_capabilities', function (Blueprint $table) {
             $table->uuid('id')->default(DB::raw('gen_random_uuid()'));
@@ -33,6 +34,7 @@ return new class extends Migration
             $table->unique(['equipment_id', 'slug'], 'equipment_capabilities_u0');
             $table->unique(['id', 'equipment_id'], 'equipment_capabilities_u1');
         });
+        DB::statement("ALTER TABLE equipment_capabilities ENABLE ROW LEVEL SECURITY");
 
         Schema::create('user_equipment', function (Blueprint $table) {
             $table->uuid('id')->default(DB::raw('gen_random_uuid()'));
@@ -43,6 +45,7 @@ return new class extends Migration
             $table->timestampsTz();
             $table->unique(['user_id', 'equipment_id'], 'user_equipment_u0');
         });
+        DB::statement("ALTER TABLE user_equipment ENABLE ROW LEVEL SECURITY");
 
         Schema::create('muscle_groups', function (Blueprint $table) {
             $table->uuid('id')->default(DB::raw('gen_random_uuid()'));
@@ -53,6 +56,7 @@ return new class extends Migration
             $table->foreignUuid('parent_id')->nullable()->constrained('muscle_groups');
             $table->timestampsTz();
         });
+        DB::statement("ALTER TABLE muscle_groups ENABLE ROW LEVEL SECURITY");
 
         Schema::create('exercises', function (Blueprint $table) {
             $table->uuid('id')->default(DB::raw('gen_random_uuid()'));
@@ -74,6 +78,7 @@ return new class extends Migration
             $table->foreignUuid('lower_impact_id')->nullable()->constrained('exercises');
             $table->timestampsTz();
         });
+        DB::statement("ALTER TABLE exercises ENABLE ROW LEVEL SECURITY");
         DB::statement("ALTER TABLE exercises ADD CHECK (measurement IN ('reps','time','distance'))");
         DB::statement("ALTER TABLE exercises ADD CHECK (difficulty IN ('beginner','intermediate','advanced'))");
         DB::statement("ALTER TABLE exercises ADD CHECK (NOT penalty_eligible OR measurement = 'reps')");
@@ -88,6 +93,7 @@ return new class extends Migration
             $table->timestampsTz();
             $table->unique(['exercise_id', 'muscle_group_id'], 'exercise_muscle_groups_u0');
         });
+        DB::statement("ALTER TABLE exercise_muscle_groups ENABLE ROW LEVEL SECURITY");
         DB::statement("ALTER TABLE exercise_muscle_groups ADD CHECK (role IN ('primary','secondary'))");
 
         Schema::create('exercise_equipment', function (Blueprint $table) {
@@ -103,6 +109,7 @@ return new class extends Migration
             $table->unique(['exercise_id', 'equipment_id'], 'exercise_equipment_u0');
             $table->foreign(['capability_id', 'equipment_id'], 'exercise_equipment_owner_0')->references(['id', 'equipment_id'])->on('equipment_capabilities');
         });
+        DB::statement("ALTER TABLE exercise_equipment ENABLE ROW LEVEL SECURITY");
 
     }
 
