@@ -57,6 +57,7 @@ Route::prefix('v1')->group(function () {
         Route::get('notifications', [ProgressController::class, 'notifications']);
         Route::post('ai/training-plans/generate', [GenerationController::class, 'generate'])->middleware('throttle:5,1,gemini:');
         Route::get('ai/generations/{id}', [GenerationController::class, 'show']);
+        Route::post('ai/nutrition/analyze', [NutritionController::class, 'analyze'])->middleware('throttle:5,1,nutrition-ai:');
         Route::get('foods', [NutritionController::class, 'foods']);
         Route::get('meals', [NutritionController::class, 'meals']);
         Route::post('meals', [NutritionController::class, 'create']);

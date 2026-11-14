@@ -12,7 +12,7 @@ class DatabaseSeeder extends Seeder
         DB::transaction(fn () => $this->call([
             EquipmentSeeder::class, EquipmentCapabilitiesSeeder::class, MuscleGroupSeeder::class,
             MachineExerciseSeeder::class, BodyweightExerciseSeeder::class, ExerciseMuscleGroupSeeder::class,
-            ExerciseEquipmentSeeder::class, PlanningLimitsSeeder::class, PenaltyRulesSeeder::class,
+            ExerciseEquipmentSeeder::class, PlanningLimitsSeeder::class, PenaltyRulesSeeder::class, FoodItemSeeder::class,
         ]));
     }
 }

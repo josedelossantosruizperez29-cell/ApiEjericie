@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Requests\AnalyzeMealRequest;
 use App\Http\Requests\MealRequest;
 use App\Http\Requests\PortionRequest;
 use App\Http\Resources\ApiResult;
 use App\Models\FoodItem;
+use App\Services\AI\NutritionAssistant;
 use App\Services\MealJournal;
 use App\Services\NutritionTotals;
 use App\Services\TrainingReports;
@@ -13,6 +15,11 @@ use Illuminate\Http\Request;
 
 class NutritionController
 {
+    public function analyze(AnalyzeMealRequest $request, NutritionAssistant $assistant)
+    {
+        return new ApiResult($assistant->analyze($request->validated('description'), $request->validated('meal_type')));
+    }
+
     public function foods()
     {
         return new ApiResult(FoodItem::orderBy('name')->paginate(50));

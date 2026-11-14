@@ -2,12 +2,23 @@
 
 namespace App\Services;
 
+use App\Models\FoodItem;
 use App\Models\User;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 
 class NutritionTotals
 {
+    public function portion(?FoodItem $food, float $quantity): array
+    {
+        $values = [];
+        foreach (['kcal', 'protein_g', 'carbs_g', 'fat_g'] as $field) {
+            $values[$field] = $food ? round($food->$field * $quantity / $food->reference_quantity, 3) : null;
+        }
+
+        return $values;
+    }
+
     public function forDay(User $user, string $localDate): object
     {
         return $this->totals($user)->where('meal_entries.local_date', $localDate)->first();

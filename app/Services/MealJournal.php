@@ -35,9 +35,7 @@ class MealJournal
                 throw ValidationException::withMessages(['unit' => 'Usa la unidad de referencia del alimento.']);
             }
             $snapshot = ['name' => $food?->name ?? $data['name'], 'source' => $food?->source ?? 'unknown', 'confidence' => $food?->confidence, 'estimated_at' => now(), 'supersedes_id' => $itemId, 'grams' => $data['unit'] === 'g' ? $data['quantity'] : null];
-            foreach (['kcal', 'protein_g', 'carbs_g', 'fat_g'] as $field) {
-                $snapshot[$field] = $food ? round($food->$field * $data['quantity'] / $food->reference_quantity, 3) : null;
-            }
+            $snapshot += app(NutritionTotals::class)->portion($food, $data['quantity']);
 
             return $meal->mealEntryItems()->save((new MealEntryItem)->forceFill($snapshot + $data));
         });

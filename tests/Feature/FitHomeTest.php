@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Models\WeightLog;
 use App\Models\WorkoutExercise;
 use App\Models\WorkoutSession;
+use App\Services\AI\GeminiClient;
 use App\Services\ExerciseCatalog;
 use App\Services\GeneratedPlanImporter;
 use App\Services\GuestIdentity;
@@ -374,18 +375,39 @@ it('solo usa referencias verificables en las comidas y aísla el historial', fun
     $this->getJson('/api/v1/weight-logs', $other)->assertJsonPath('data.total', 0);
 });
 
-it('persiste una falla inesperada y recupera una solicitud interrumpida',function(){
-    $guest=$this->postJson('/api/v1/guests',['age_years'=>28,'height_cm'=>172,'weight_kg'=>70,'goal'=>'strength_cardio','weekly_availability'=>[1],'session_minutes'=>20,'complete'=>true])->json('data');
-    $headers=['X-Guest-Id'=>$guest['public_id'],'Authorization'=>'Bearer '.$guest['token']];
-    $mock=Mockery::mock(\App\Services\AI\GeminiClient::class);
+it('persiste una falla inesperada y recupera una solicitud interrumpida', function () {
+    $guest = $this->postJson('/api/v1/guests', ['age_years' => 28, 'height_cm' => 172, 'weight_kg' => 70, 'goal' => 'strength_cardio', 'weekly_availability' => [1], 'session_minutes' => 20, 'complete' => true])->json('data');
+    $headers = ['X-Guest-Id' => $guest['public_id'], 'Authorization' => 'Bearer '.$guest['token']];
+    $mock = Mockery::mock(GeminiClient::class);
     $mock->shouldReceive('generate')->once()->andThrow(new RuntimeException('private diagnostic'));
-    app()->instance(\App\Services\AI\GeminiClient::class,$mock);
-    $payload=['request_key'=>fake()->uuid()];
-    $url='/api/v1/ai/training-plans/generate';
-    $response=$this->postJson($url,$payload,$headers)->assertStatus(503)->assertJsonPath('errors.reason','internal_error');
-    $id=$response->json('errors.generation_id');
-    $this->getJson("/api/v1/ai/generations/$id",$headers)->assertJsonPath('data.status','failed');
-    DB::table('ai_generations')->where('id',$id)->update(['status'=>'processing','requested_at'=>now()->subMinutes(5)]);
-    $this->postJson($url,$payload,$headers)->assertStatus(503)->assertJsonPath('errors.reason','interrupted');
-    expect(DB::table('training_plans')->where('source','ai')->count())->toBe(0);
+    app()->instance(GeminiClient::class, $mock);
+    $payload = ['request_key' => fake()->uuid()];
+    $url = '/api/v1/ai/training-plans/generate';
+    $response = $this->postJson($url, $payload, $headers)->assertStatus(503)->assertJsonPath('errors.reason', 'internal_error');
+    $id = $response->json('errors.generation_id');
+    $this->getJson("/api/v1/ai/generations/$id", $headers)->assertJsonPath('data.status', 'failed');
+    DB::table('ai_generations')->where('id', $id)->update(['status' => 'processing', 'requested_at' => now()->subMinutes(5)]);
+    $this->postJson($url, $payload, $headers)->assertStatus(503)->assertJsonPath('errors.reason', 'interrupted');
+    expect(DB::table('training_plans')->where('source', 'ai')->count())->toBe(0);
+});
+
+it('analiza sin guardar y confirma solo una porción con referencia verificada', function () {
+    $path = '/api/v1/ai/nutrition/analyze';
+    $this->postJson($path, ['description' => 'arroz'])->assertUnauthorized();
+    $headers = ['X-Guest-Id' => $this->user->public_id, 'Authorization' => 'Bearer '.app(GuestIdentity::class)->issue($this->user)];
+    $this->postJson($path, ['description' => '', 'meal_type' => 'invalid'], $headers)->assertUnprocessable();
+    config(['gemini.key' => 'fixture', 'gemini.model' => 'fixture']);
+    Http::preventStrayRequests();
+    $items = [['name' => 'Arroz cocido', 'quantity' => 0.15, 'unit' => 'kg', 'reference_slug' => 'usda-168878'], ['name' => 'Huevos', 'quantity' => 2, 'unit' => 'unidad', 'reference_slug' => 'usda-173424'], ['name' => 'Sancocho', 'reference_slug' => 'inventado']];
+    $reply = ['meal_type' => 'lunch', 'items' => $items];
+    Http::fake(['*' => Http::sequence()->push(['candidates' => [['finishReason' => 'STOP', 'content' => ['parts' => [['text' => json_encode($reply)]]]]]])->push(['candidates' => [['finishReason' => 'STOP', 'content' => ['parts' => [['text' => 'invalid']]]]]])]);
+    $proposed = $this->postJson($path, ['description' => 'Almorcé arroz cocido, dos huevos y sancocho.'], $headers)->assertOk()
+        ->assertJsonPath('data.items.0.nutrients.kcal', 195)->assertJsonPath('data.items.1.confirmation', null)->assertJsonPath('data.items.2.nutrients.kcal', null)->json('data.items.0.confirmation');
+    expect($this->user->mealEntries()->count())->toBe(0);
+    $id = $this->postJson('/api/v1/meals', ['kind' => 'lunch', 'eaten_at' => now()->toIso8601String()], $headers)->json('data.id');
+    $this->postJson("/api/v1/meals/$id/items", $proposed, $headers)->assertCreated();
+    $this->getJson('/api/v1/nutrition/today', $headers)->assertJsonPath('data.kcal', '195.000');
+    $this->postJson($path, ['description' => 'otro alimento'], $headers)->assertStatus(502);
+    $this->seed();
+    expect(FoodItem::where('slug','like','usda-%')->count())->toBe(5);
 });
