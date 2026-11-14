@@ -2,6 +2,7 @@
 
 API Laravel para entrenamiento en casa, alimentación y seguimiento del progreso.
 
+- [Despliegue Docker en Render Free](docs/deploy-render.md)
 - [API REST v1, endpoints y ejemplos para Flutter](docs/api-v1.md)
 - [Configuración, migraciones y pruebas PostgreSQL](docs/fit-home.md)
 - [Esquema relacional y diagrama Mermaid](docs/esquema.md)
