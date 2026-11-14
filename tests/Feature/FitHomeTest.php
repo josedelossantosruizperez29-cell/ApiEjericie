@@ -12,6 +12,7 @@ use App\Models\WeightLog;
 use App\Models\WorkoutExercise;
 use App\Models\WorkoutSession;
 use App\Services\AI\GeminiClient;
+use App\Services\AI\PlanGeneration;
 use App\Services\ExerciseCatalog;
 use App\Services\GeneratedPlanImporter;
 use App\Services\GuestIdentity;
@@ -409,5 +410,37 @@ it('analiza sin guardar y confirma solo una porción con referencia verificada',
     $this->getJson('/api/v1/nutrition/today', $headers)->assertJsonPath('data.kcal', '195.000');
     $this->postJson($path, ['description' => 'otro alimento'], $headers)->assertStatus(502);
     $this->seed();
-    expect(FoodItem::where('slug','like','usda-%')->count())->toBe(5);
+    expect(FoodItem::where('slug', 'like', 'usda-%')->count())->toBe(5);
+});
+
+it('conserva una única generación activa durante la llamada y descarta respuestas tardías', function () {
+    $guest = $this->postJson('/api/v1/guests', ['age_years' => 30, 'height_cm' => 170, 'weight_kg' => 70, 'goal' => 'strength_cardio', 'weekly_availability' => [1], 'session_minutes' => 20, 'complete' => true])->json('data');
+    $user = User::where('public_id', $guest['public_id'])->sole();
+    $key = fake()->uuid();
+    config(['gemini.key' => 'fixture', 'gemini.model' => 'fixture']);
+    Http::fake(function () use ($user, $key) {
+        expect(DB::transactionLevel())->toBe(0);
+        $service = app(PlanGeneration::class);
+        expect($service->generate($user, $key)->status)->toBe('processing');
+        expect(fn () => $service->generate($user, fake()->uuid()))->toThrow(DomainException::class);
+        $user->aiGenerations()->update(['status' => 'failed', 'error_code' => 'interrupted']);
+
+        return Http::response(['candidates' => [['finishReason' => 'STOP', 'content' => ['parts' => [['text' => '{}']]]]]]);
+    });
+    $gen = app(PlanGeneration::class)->generate($user, $key);
+    expect($gen->status)->toBe('failed')->and($gen->error_code)->toBe('interrupted')
+        ->and($user->trainingPlans()->count())->toBe(0)->and($user->aiGenerations()->count())->toBe(1);
+});
+
+it('revierte la importación si falla PostgreSQL al confirmar el consumo', function () {
+    $guest = $this->postJson('/api/v1/guests', ['age_years' => 30, 'height_cm' => 170, 'weight_kg' => 70, 'goal' => 'strength_cardio', 'weekly_availability' => [1, 2, 3, 4, 5, 6, 7], 'session_minutes' => 20, 'complete' => true])->json('data');
+    $user = User::where('public_id', $guest['public_id'])->sole();
+    config(['gemini.key' => 'fixture', 'gemini.model' => 'fixture']);
+    DB::statement("ALTER TABLE ai_generations ADD CHECK (jsonb_exists(usage, 'totalTokenCount') = false)");
+    $day = today()->addDay()->toDateString();
+    $plan = ['goal_id' => $user->userGoals()->sole()->id, 'starts_on' => $day, 'ends_on' => $day, 'sessions' => [['date' => $day, 'exercises' => [['id' => Exercise::where('slug', 'sentadilla')->sole()->id, 'sets' => 1, 'reps' => 5, 'rest_seconds' => 30, 'estimated_seconds' => 20]]]]];
+    Http::fake(['*' => Http::response(['usageMetadata' => ['totalTokenCount' => 123], 'candidates' => [['finishReason' => 'STOP', 'content' => ['parts' => [['text' => json_encode($plan)]]]]]])]);
+    $gen = app(PlanGeneration::class)->generate($user, fake()->uuid());
+    expect($gen->status)->toBe('failed')->and($gen->error_code)->toBe('database')
+        ->and($user->trainingPlans()->count())->toBe(0)->and($gen->aiPlanRecommendations()->count())->toBe(0);
 });

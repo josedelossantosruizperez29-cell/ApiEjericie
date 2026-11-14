@@ -54,7 +54,7 @@ Los alimentos y porciones conservan su fuente y precisión decimal. Corrige una 
 
 ## Reproducir las pruebas
 
-Utiliza PostgreSQL local con una **base exclusiva y desechable llamada fit_home_test**, un usuario propietario, PHP con `pdo_pgsql` y las dependencias de desarrollo de Composer. El entorno de pruebas migra y siembra esa base, crea perfiles de prueba y conserva los registros entre ejecuciones. El nombre de la base es fijo. La prueba de concurrencia arranca dos procesos PHP y comprueba que ambos se bloquean en PostgreSQL antes de liberar la transacción.
+Utiliza un clúster PostgreSQL local de pruebas con una base de control llamada `fit_home_test`, un rol con CREATEDB y las dependencias PHP de desarrollo. Cada caso crea una base con sufijo aleatorio desde template0, ejecuta las migraciones y seeders, y elimina exclusivamente esa base al finalizar. El trabajador de concurrencia recibe explícitamente el nombre del caso y usa la misma base con una conexión independiente. El nombre del servidor de producción y DB_URL quedan fuera de la configuración de pruebas.
 
 ```sh
 FIT_TEST_HOST=127.0.0.1 FIT_TEST_PORT=5432 FIT_TEST_USER=postgres vendor/bin/pest
@@ -67,3 +67,46 @@ Configura `FIT_TEST_PASSWORD` en el entorno si tu instancia lo requiere. Tambié
 En PostgreSQL 16.15 pasaron 14 pruebas con 71 aserciones, incluidas dos pruebas originales de Laravel. Se ejecutó además el ciclo de las siete migraciones en una segunda base local. Tras revertirlas, las cuatro migraciones previas y los registros testigo en `auth` y `storage` permanecieron intactos. Las siete volvieron a aplicarse. Con grants simulados, el propietario leyó los 26 ejercicios y el rol cliente leyó cero.
 
 En Supabase se inspeccionaron el inventario, el propietario y los permisos, y se generó la vista previa SQL. En ese momento las diez tablas existentes concedían SELECT a `anon` y tenían RLS desactivado. El efecto de los cambios en el proyecto alojado queda pendiente de aplicar las migraciones autorizadas.
+
+## Ciclo 3 · Gemini y Supabase
+
+Configura las variables vacías de .env.example en el entorno privado. Tras rotar una clave, regenera la caché de configuración en el despliegue. Ejecuta explícitamente la comprobación de modelo y JSON. Hace una consulta de metadatos y, si admite generateContent, una generación de hasta 512 tokens de salida. Las pruebas reales de plan y nutrición crean invitados ficticios en bases locales aisladas y solo se ejecutan con activación explícita.
+
+```sh
+php artisan fit-home:gemini-check
+FIT_LIVE_GEMINI=1 FIT_TEST_HOST=127.0.0.1 FIT_TEST_USER=postgres vendor/bin/pest tests/Live/GeminiTest.php
+```
+
+La generación conserva el contrato de estados: processing, validated para un plan confirmado, invalid para una propuesta rechazada y failed para errores operativos. La petición HTTP al proveedor ocurre fuera de la transacción. La escritura del plan, la validación y el consumo comparten una transacción. La recuperación programada cada minuto marca como failed/interrupted las solicitudes de más de tres minutos. También se comprueban al reintentar. Una respuesta tardía debe encontrar la generación todavía en processing bajo bloqueo antes de guardar.
+
+El 14 de noviembre de 2026, la inspección remota de solo lectura encontró las cuatro migraciones de Laravel aplicadas y las ocho de Fit Home pendientes. Las diez tablas existentes en public son propiedad del rol conectado, tienen RLS desactivado y conceden SELECT a anon y authenticated, y TRUNCATE a anon. El estado de exposición de la Data API y la existencia de un punto de restauración utilizable se comprueban desde el panel del proyecto. La inspección SQL no demuestra que haya un respaldo recuperable.
+
+### Secuencia de despliegue y reversión pendiente de autorización
+
+1. En el panel de Supabase identifica el respaldo o punto PITR anterior al despliegue, fecha, retención y procedimiento de restauración. Ensaya la restauración en una instancia separada y compara inventario y recuentos. Conserva un export de esquema, políticas y ACL (incluidos privilegios predeterminados) y los recuentos de las tablas Laravel.
+2. En staging revisa `migrate:status` y `migrate --pretend`. La protección RLS precede a la adaptación de usuarios, catálogo, identidad, entrenamiento, seguimiento, historial nutricional y ampliación de registros API. El inventario remoto observado coincide con las cuatro migraciones originales. Un rol de ejecución distinto del propietario deberá probarse con sus permisos reales, incluido acceso a secuencias.
+3. La arquitectura solo necesita acceso de Laravel. Revisa el uso de otras aplicaciones antes de deshabilitar la Data API o retirar grants. Para las tablas Laravel y Fit Home, prepara REVOKE de los privilegios directos de anon y authenticated y revisa PUBLIC, membresías y ACL de secuencias. Incluye TRUNCATE, REFERENCES y TRIGGER; RLS protege filas pero no estas operaciones. Revisa ALTER DEFAULT PRIVILEGES **para el rol que crea las tablas** para evitar que los grants vuelvan a aparecer. Limita los cambios al inventario aprobado. Conserva los grants de backend necesarios para caché y bloqueos, encolar y consumir jobs, sesiones y tokens.
+4. Tras autorización y respaldo verificado, aplica primero en staging, ejecuta seeders y compara inventario y recuentos. Comprueba con los roles reales los permisos efectivos, RLS y acceso directo denegado, además de crear y rotar una credencial invitada, leer el perfil, escribir caché y procesar un job de prueba. Repite los controles en producción durante la ventana autorizada. Los comandos Artisan del inicio de esta guía describen el orden.
+5. Ante un fallo, detén escrituras y scheduler, identifica la última migración confirmada y prioriza una corrección incremental. Si ya hay datos nuevos, restaura el respaldo en una instancia separada, compara y reconcilia antes de decidir una recuperación de producción. Revertir migraciones de creación elimina tablas. Recupera grants y políticas desde el export aprobado y verifica tanto el acceso del backend como la exposición al cliente.
+
+Consulta reproducible de diagnóstico:
+
+```sql
+SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity,
+       c.relowner = current_user::regrole AS owned_by_backend,
+       has_table_privilege('anon',c.oid,'SELECT') AS anon_read,
+       has_table_privilege('authenticated',c.oid,'SELECT') AS authenticated_read,
+       has_table_privilege('anon',c.oid,'TRUNCATE') AS anon_truncate,
+       has_table_privilege('authenticated',c.oid,'TRUNCATE') AS authenticated_truncate
+FROM pg_class c
+WHERE c.relnamespace = 'public'::regnamespace AND c.relkind='r'
+ORDER BY c.relname;
+SELECT tablename, policyname, roles, cmd FROM pg_policies WHERE schemaname='public';
+SELECT migration, batch FROM public.migrations ORDER BY migration;
+```
+
+### Resultado del tercer ciclo
+
+El modelo indicado en GEMINI_MODEL fue reconocido por Google. La comprobación real validó JSON en 12.844 ms con 21 tokens. El ensayo HTTP con EVO 500 aceptó, guardó y recuperó una jornada de cinco ejercicios en PostgreSQL local (2.040 tokens). El ensayo nutricional real identificó dos alimentos y conservó el diario vacío. Las dos pruebas reales sumaron nueve aserciones. La suite ordinaria pasó dos veces, incluyendo orden aleatorio, con 32 pruebas y 207 aserciones por ejecución, cero omitidas y cero fallidas. Pint pasó sobre el repositorio. Las 12 migraciones están aplicadas en la base local. De las 49 operaciones v1, 48 son las originales. Se mantiene la ruta independiente de Sanctum.
+
+Para obtener la lista exacta de archivos de este ciclo ejecuta `git diff --name-status 2d51d5e..HEAD`. La clave temporal no se encontró en los archivos versionados ni en los logs locales inspeccionados. El siguiente paso de Flutter es probar el flujo en un backend de desarrollo y presentar la confirmación de alimentos antes de escribir el diario.

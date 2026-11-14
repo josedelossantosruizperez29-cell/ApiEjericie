@@ -65,3 +65,5 @@ If you discover a security vulnerability within Laravel, please send an e-mail t
 ## License
 
 The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+
+El [procedimiento de verificación de Gemini y despliegue en Supabase](docs/fit-home.md#ciclo-3--gemini-y-supabase) incluye la prueba real opcional y las comprobaciones previas a producción.

@@ -72,7 +72,8 @@ class GeminiClient
             } catch (ConnectionException $e) {
                 if ($attempt < min(2, $attempts)) {
                     continue;
-                }throw $this->connectionError($e);
+                }
+                throw $this->connectionError($e);
             }
             if ($res->serverError() && $attempt < min(2, $attempts)) {
                 continue;
@@ -98,6 +99,6 @@ class GeminiClient
 
             return [$text, $usage];
         }
-        throw new HttpException(503,'provider_error');
+        throw new HttpException(503, 'provider_error');
     }
 }

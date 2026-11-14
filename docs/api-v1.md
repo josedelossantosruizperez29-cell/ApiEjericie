@@ -79,6 +79,7 @@ Las rutas siguientes son relativas al prefijo. Los parámetros de ruta son UUID.
 | PUT /notifications/preferences | kind, local_time (HH:mm), timezone y enabled | Lista actualizada |
 | GET /notifications | page | Eventos con canal, hora y estado |
 | POST /ai/training-plans/generate | request_key (UUID estable para cada intento lógico) | Generación con recomendación, plan y jornadas |
+| POST /ai/nutrition/analyze | description y meal_type opcional | Interpretación, referencias, incertidumbre y propuesta de confirmación |
 | GET /ai/generations/{id} | — | Estado, uso, errores y planes de la generación |
 
 **Perfil.** Usa name, last_name, birth_date o age_years, weight_kg (1–500), height_cm (40–260), timezone IANA, level (beginner, intermediate, advanced), goal (fat_loss, muscle_gain, strength_cardio), weekly_availability (enteros ISO distintos de 1 a 7), session_minutes (5–180), equipment_ids y exercise_preferences. El cuestionario conserva los campos omitidos. Para finalizar envía complete=true después de registrar edad o nacimiento, peso, estatura, objetivo, días y duración. Los límites de entrada son controles de calidad de datos. Las unidades de almacenamiento son kg y cm incluso si la preferencia de presentación es imperial.
@@ -89,7 +90,7 @@ Las rutas siguientes son relativas al prefijo. Los parámetros de ruta son UUID.
 
 **Agenda y límites.** Al abrir la aplicación consulta el dashboard para conciliar vencimientos. El scheduler también reconcilia cada minuto. Las preferencias de recordatorio admiten breakfast, lunch, dinner y training. Flutter consume la hora local y zona para programar sus alertas. El incremento físico por deuda empieza desactivado. Un administrador puede ejecutar `php artisan fit:penalty-limits --enabled=1 --max-extra=N` con un máximo previamente revisado, además del tope individual `user_preferences.max_extra_reps` y los límites por ejercicio. Configura la política inicial en `config/training.php`. La prescripción registra procedencia y vigencia. Son valores operativos revisables, sin certificación clínica.
 
-**Gemini.** Configura GEMINI_API_KEY y GEMINI_MODEL en el servidor con un modelo habilitado en tu cuenta que admita salida estructurada. El backend envía el objetivo y el catálogo filtrado. Guarda la clave de idempotencia antes de solicitar un plan. Reutilízala al reintentar o tras perder la respuesta. Una nueva generación requiere una clave nueva y ausencia de un plan activo vigente o futuro. Una propuesta inválida conserva errors.generation_id y errors.reason. Una generación fallida requiere una clave nueva para otro intento. La cuota de generación es 5/minuto. El asistente de nutrición está disponible como servicio de backend. [Referencia oficial de generateContent](https://ai.google.dev/api/generate-content)
+**Gemini.** Configura GEMINI_API_KEY y GEMINI_MODEL en el servidor con un modelo habilitado en tu cuenta que admita salida estructurada. El backend envía el objetivo y el catálogo filtrado. Guarda la clave de idempotencia antes de solicitar un plan. Reutilízala al reintentar o tras perder la respuesta. Una nueva generación requiere una clave nueva y ausencia de un plan activo vigente o futuro. Una propuesta inválida conserva errors.generation_id y errors.reason. Una generación fallida requiere una clave nueva para otro intento. La cuota de generación es 5/minuto. El análisis de comidas tiene su propia cuota de 5 solicitudes por minuto. [Referencia oficial de generateContent](https://ai.google.dev/api/generate-content)
 
 ## Flujo HTTP reproducible
 
@@ -151,3 +152,32 @@ El 13 de noviembre de 2026, `php artisan test` ejecutó 28 pruebas con 178 aserc
 La inspección de producción encontró cuatro migraciones originales aplicadas y ocho migraciones Fit Home pendientes. En las diez tablas públicas existentes, tanto anon como authenticated tenían SELECT con RLS desactivado. Si la Data API expone public, pueden quedar accesibles a clientes. La migración protectora habilita RLS y restringe estos roles en las tablas Laravel. El rol de Laravel inspeccionado es propietario. La verificación remota fue de solo lectura. Revisa `php artisan migrate --pretend` antes del despliegue autorizado. El rollback de la nueva migración requiere resolver antes cualquier instantánea con nutrientes desconocidos para restablecer NOT NULL.
 
 Para listar los archivos exactos de esta etapa usa `git diff --name-status d3cfe44..HEAD` desde la raíz.
+
+## Interpretar y confirmar una comida
+
+Envía a `POST /api/v1/ai/nutrition/analyze` las mismas credenciales de invitado que al registrar una comida. Solo la descripción y las referencias de alimentos se envían a Gemini. El campo opcional meal_type admite breakfast, lunch, dinner o snack y tiene prioridad sobre el tipo interpretado. Envía como máximo 1000 caracteres.
+
+```json
+{"description":"Almorcé dos huevos","meal_type":"lunch"}
+```
+
+Ejemplo de respuesta cuando falta la preparación y el peso comestible:
+
+```json
+{
+  "success": true,
+  "message": "Operación realizada correctamente",
+  "data": {
+    "meal_type": "lunch",
+    "requires_confirmation": true,
+    "items": [{
+      "name": "Huevos", "quantity": 2, "unit": "unidad", "grams": null,
+      "missing": ["Aclarar alimento y preparación para seleccionar una referencia.","Confirmar la cantidad comestible en gramos."],
+      "reference": null, "uncertain": true, "confirmation": null,
+      "nutrients": {"kcal":null,"protein_g":null,"carbs_g":null,"fat_g":null}
+    }]
+  }
+}
+```
+
+Gemini puede describir la preparación y señalar otras ambigüedades. Laravel admite conversiones exactas de kg a g, consulta referencias verificadas y calcula los nutrientes. Para una coincidencia confirmable devuelve la referencia con su fuente y un objeto confirmation con food_item_id, quantity y unit. Flutter debe mostrar el resultado para que la persona revise porciones, preparación y unidades. Solo tras su confirmación crea la comida y envía las porciones al endpoint existente de items. El dashboard consulta los totales del diario confirmado. Los errores del análisis mantienen el formato de la API, con 401 para credenciales, 422 para entradas, 429 para límite local, 502 para respuesta inválida y 503 para indisponibilidad del proveedor.
