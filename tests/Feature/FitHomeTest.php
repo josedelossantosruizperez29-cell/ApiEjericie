@@ -373,3 +373,19 @@ it('solo usa referencias verificables en las comidas y aísla el historial', fun
     $this->getJson('/api/v1/statistics/weight', $headers)->assertJsonPath('data.latest.weight_kg', '75.000');
     $this->getJson('/api/v1/weight-logs', $other)->assertJsonPath('data.total', 0);
 });
+
+it('persiste una falla inesperada y recupera una solicitud interrumpida',function(){
+    $guest=$this->postJson('/api/v1/guests',['age_years'=>28,'height_cm'=>172,'weight_kg'=>70,'goal'=>'strength_cardio','weekly_availability'=>[1],'session_minutes'=>20,'complete'=>true])->json('data');
+    $headers=['X-Guest-Id'=>$guest['public_id'],'Authorization'=>'Bearer '.$guest['token']];
+    $mock=Mockery::mock(\App\Services\AI\GeminiClient::class);
+    $mock->shouldReceive('generate')->once()->andThrow(new RuntimeException('private diagnostic'));
+    app()->instance(\App\Services\AI\GeminiClient::class,$mock);
+    $payload=['request_key'=>fake()->uuid()];
+    $url='/api/v1/ai/training-plans/generate';
+    $response=$this->postJson($url,$payload,$headers)->assertStatus(503)->assertJsonPath('errors.reason','internal_error');
+    $id=$response->json('errors.generation_id');
+    $this->getJson("/api/v1/ai/generations/$id",$headers)->assertJsonPath('data.status','failed');
+    DB::table('ai_generations')->where('id',$id)->update(['status'=>'processing','requested_at'=>now()->subMinutes(5)]);
+    $this->postJson($url,$payload,$headers)->assertStatus(503)->assertJsonPath('errors.reason','interrupted');
+    expect(DB::table('training_plans')->where('source','ai')->count())->toBe(0);
+});

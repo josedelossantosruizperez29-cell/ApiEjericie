@@ -1,12 +1,15 @@
 <?php
 
+use App\Models\AiGeneration;
 use App\Models\PenaltyRule;
 use App\Models\User;
+use App\Services\AI\GeminiClient;
 use App\Services\WorkoutLedger;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
 use Illuminate\Support\Facades\Validator;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -34,3 +37,27 @@ Artisan::command('fit:penalty-limits {--enabled=} {--max-extra=}', function () {
     $rule->forceFill(['adjustments_enabled' => (bool) $data['enabled'], 'max_extra_reps' => (int) $data['max_extra']])->save();
     $this->info('Configuración global actualizada. Siguen vigentes los límites individuales y por ejercicio.');
 })->purpose('Configurar el tope global de ajustes por deuda');
+
+Artisan::command('fit-home:gemini-check', function (GeminiClient $client) {
+    $start = hrtime(true);
+    $this->line('Clave: '.(config('gemini.key') ? 'presente' : 'ausente').'; modelo: '.(config('gemini.model') ? 'configurado' : 'ausente'));
+    try {
+        $client->verifyModel();
+        $this->info('Modelo disponible con generateContent.');
+        [$text,$usage] = $client->generate('Return the requested JSON with ok equal to true.', [], ['type' => 'object', 'properties' => ['ok' => ['type' => 'boolean']], 'required' => ['ok']], 512, 1);
+        if (json_decode($text, true) !== ['ok' => true]) {
+            throw new HttpException(502, 'invalid_json');
+        }
+        $this->info('JSON verificado. Consumo: '.json_encode($usage));
+
+        return 0;
+    } catch (HttpException $e) {
+        $this->error('Resultado: '.$e->getMessage());
+
+        return 1;
+    } finally {
+        $this->line('Tiempo: '.round((hrtime(true) - $start) / 1e6).' ms');
+    }
+})->purpose('Comprobar el modelo configurado y una generación JSON real acotada');
+
+Schedule::call(fn () => AiGeneration::where('kind', 'training_plan')->where('status', 'processing')->where('requested_at', '<=', now()->subMinutes(3))->update(['status' => 'failed', 'error_code' => 'interrupted']))->name('fit:recover-generations')->everyMinute();
