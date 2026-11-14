@@ -19,30 +19,27 @@ use App\Services\WorkoutCalendar;
 use App\Services\WorkoutLedger;
 use App\Services\WorkoutResults;
 use Illuminate\Database\QueryException;
-use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Symfony\Component\Process\Process;
+use Tests\Support\LocalPostgres;
 
 beforeEach(function () {
     $host = getenv('FIT_TEST_HOST');
     if (! $host) {
         $this->markTestSkipped('Configura FIT_TEST_HOST para probar PostgreSQL local.');
     }
-    if (! in_array($host, ['localhost', '127.0.0.1'], true) && ! str_starts_with($host, '/')) {
-        throw new RuntimeException('Se requiere un PostgreSQL local.');
-    }
-    $config = [
-        'driver' => 'pgsql', 'host' => $host, 'database' => 'fit_home_test',
-        'port' => getenv('FIT_TEST_PORT') ?: 5432, 'username' => getenv('FIT_TEST_USER') ?: 'postgres',
-        'password' => getenv('FIT_TEST_PASSWORD') ?: '', 'sslmode' => 'disable', 'timezone' => 'UTC', 'search_path' => 'public',
-    ];
-    config(['database.default' => 'fit_test', 'database.connections.fit_test' => $config]);
-    Artisan::call('migrate', ['--force' => true]);
-    $this->seed();
+    $this->instance = new LocalPostgres;
+    $this->instance->create();
     $this->user = User::create(['name' => 'Invitado'])->refresh();
     $this->plan = fitPlan($this->user);
     $this->ledger = app(WorkoutLedger::class);
+});
+
+afterEach(function () {
+    if (isset($this->instance)) {
+        $this->instance->close();
+    }
 });
 
 function fitPlan(User $user): TrainingPlan
@@ -194,7 +191,7 @@ it('serializa procesos PostgreSQL concurrentes durante omisión y resolución', 
         try {
             User::whereKey($this->user->id)->lockForUpdate()->sole();
             for ($i = 0; $i < 2; $i++) {
-                $worker = new Process([PHP_BINARY, base_path('tests/Support/ledger-worker.php'), $operation, (string) $this->user->id, $today->id]);
+                $worker = new Process([PHP_BINARY, base_path('tests/Support/ledger-worker.php'), $operation, (string) $this->user->id, $today->id, DB::connection()->getDatabaseName()]);
                 $worker->start();
                 $workers[] = $worker;
             }
