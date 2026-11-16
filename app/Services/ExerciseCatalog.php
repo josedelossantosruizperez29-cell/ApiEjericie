@@ -21,7 +21,7 @@ class ExerciseCatalog
         $query = Exercise::query()->where('active', true)->whereIn('difficulty', $levels)
             ->whereDoesntHave('requiredEquipment', fn ($q) => $q->where('active', false)
                 ->orWhereDoesntHave('owners', fn ($owners) => $owners->whereKey($user->id)));
-        if ($difficulty === 'easy') {
+        if ($difficulty === 'easy' || $user->userPreference?->recovery) {
             $query->where('difficulty', 'beginner');
         }
         foreach ($user->userHealthConstraints as $constraint) {

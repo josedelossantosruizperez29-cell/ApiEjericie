@@ -70,10 +70,59 @@ class PlanGeneration
                     $e instanceof ModelNotFoundException => 'missing_context',
                     default => 'internal_error',
                 };
+                if (in_array($reason, ['timeout', 'connection', 'dns', 'provider_quota', 'provider_error'], true)) {
+                    try {
+                        $this->recoverPriorPlan($user, $generation);
+                    } catch (ValidationException) {
+                        // El historial ya no es apto. Conservar el error original del proveedor.
+                    }
+                }
                 $user->aiGenerations()->whereKey($generation->id)->where('status', 'processing')->update(['status' => 'failed', 'error_code' => $reason]);
             }
         }
 
         return $generation->refresh()->load('aiPlanRecommendations.trainingPlan.workoutSessions');
+    }
+
+    private function recoverPriorPlan(User $user, AiGeneration $generation): void
+    {
+        DB::transaction(function () use ($user, $generation) {
+            $user = User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+            $locked = $user->aiGenerations()->lockForUpdate()->findOrFail($generation->id);
+            if ($locked->status !== 'processing') {
+                return;
+            }
+            $today = app(TrainingReports::class)->today($user);
+            $goal = $user->userGoals()->where('status', 'active')->orderBy('priority')->first();
+            $plan = $user->trainingPlans()->where('goal_id', $goal?->id)
+                ->where('training_difficulty', $locked->training_difficulty)->where('ends_on', '<', $today->toDateString())
+                ->whereHas('aiPlanRecommendations', fn ($q) => $q->where('validation_status', 'accepted'))
+                ->latest('ends_on')->first();
+            if (! $plan) {
+                return;
+            }
+            $days = [];
+            foreach ($plan->workoutSessions()->where('status', 'completed')->with('workoutExercises')->orderBy('scheduled_date')->get() as $session) {
+                $date = $today->addDays(($session->scheduled_date->dayOfWeekIso - $today->dayOfWeekIso + 7) % 7)->toDateString();
+                $items = [];
+                foreach ($session->workoutExercises->sortBy('position') as $item) {
+                    $items[] = array_intersect_key($item->prescription, array_flip(['id', 'sets', 'reps', 'seconds', 'rest_seconds', 'estimated_seconds']));
+                }
+                if ($items) {
+                    $days[$date] = ['date' => $date, 'exercises' => $items];
+                }
+            }
+            if (! $days) {
+                return;
+            }
+            ksort($days);
+            $payload = ['goal_id' => $plan->goal_id, 'starts_on' => array_key_first($days), 'ends_on' => array_key_last($days), 'sessions' => array_values($days)];
+            $result = $this->importer->import($user, $locked->id, json_encode($payload, JSON_THROW_ON_ERROR));
+            if ($result->validation_status !== 'accepted') {
+                throw ValidationException::withMessages(['history' => 'El historial ya no es compatible.']);
+            }
+            $result->trainingPlan->forceFill(['source' => 'recovered'])->save();
+            $result->forceFill(['reason' => 'revalidated_history', 'recommendation' => $result->recommendation + ['previous_plan_id' => $plan->id]])->save();
+        });
     }
 }

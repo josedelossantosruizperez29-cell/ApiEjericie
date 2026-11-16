@@ -74,7 +74,10 @@ class WorkoutReplacement
         $best = $candidates->filter(function ($e) use ($item, $original, $user, $applied, $ranks, $limits) {
             $cap = $e->rep_limits[$user->userProfile->level] ?? $limits['max_reps'];
 
-            return $ranks[$e->difficulty] <= $ranks[$original->difficulty]
+            return $item->sets <= $limits['max_sets']
+                && $item->base_reps <= $limits['max_reps']
+                && $item->duration_seconds <= $limits['max_seconds_per_set']
+                && $ranks[$e->difficulty] <= $ranks[$original->difficulty]
                 && (! $applied || $applied <= $cap)
                 && ($applied <= $item->base_reps || $e->penalty_eligible)
                 && (! $item->load_kg || $original->movement === $e->movement);
