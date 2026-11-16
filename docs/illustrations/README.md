@@ -64,17 +64,27 @@ El cambio Flutter está escrito en Dart y usa la caché de imágenes en memoria 
 
 La entrega móvil requiere comprobar el parche sobre un Android que tenga la release Shorebird 1.0.0+1 antes de distribuirlo. La ilustración viaja por HTTPS y el icono alternativo ya se utilizaba en la aplicación. La publicación en Render, Supabase o Shorebird requiere autorización específica. [Compatibilidad de parches](https://docs.shorebird.dev/code-push/faq/)
 
-## Verificación previa al despliegue del 16 de noviembre de 2026
+## Diagnóstico previo del 16 de noviembre de 2026
 
 Se comprobaron los 26 archivos del inventario. Todos decodifican como WebP de 1024 × 768, ocupan 857 572 bytes en total y coinciden en tamaño y SHA-256 con el CSV. En PostgreSQL local se cotejaron los 26 pares UUID/slug con el registro de asociaciones, sus instrucciones, descripciones y URL. Las 26 descargas HTTPS locales devolvieron el MIME y el hash esperados. El único ejercicio inactivo es el curl predicador. Laravel pasó 37 pruebas con 237 aserciones.
 
 La conexión efectiva local usa PDO PostgreSQL con libpq 16.15, conexión directa por IPv6 en el puerto 5432, rol postgres y SSL requerido. No se detectó precedencia de DB_URL, contraseña del shell ni caché de configuración. Hubo negociación TLS 1.3 y la base rechazó la autenticación antes de ejecutar la primera consulta. El almacén de confianza del sistema no verificó por sí solo la CA de Supabase. Para usar verify-full se necesita la CA del proyecto. El endpoint de salud del servicio Render respondió 200 y su implementación devuelve un JSON estático.
 
-Storage devolvió HTTP 400 y el error interno 404 «Bucket not found» al GET anónimo de sentadilla-v2.webp. El panel pidió iniciar sesión. La existencia administrativa del bucket, el plan, las cuotas, las políticas RLS, los UUID y el estado de migraciones en producción quedan sin verificar.
+## Despliegue en producción (16 de noviembre de 2026)
 
-Antes de solicitar la aprobación de escritura:
+Las 26 ilustraciones están publicadas en el proyecto Supabase `nuylkjqbndpghpnzlqdc` y asociadas a los ejercicios reales. El detalle por fila, con UUID, URL, tamaño y SHA-256, está en el [registro de producción](produccion.csv).
 
-1. Contrastar el destino de la conexión efectiva de Render con la referencia en Supabase. Con credenciales vigentes, consultar en modo de solo lectura el catálogo, las columnas, las claves foráneas y el registro de migraciones. Exportar UUID, slug, estado y URL previa por ejercicio. Resolver las diferencias de UUID por entorno antes de aprobar el mapa de producción.
-2. Consultar el bucket, objetos, restricciones MIME y políticas efectivas, incluidas las globales de Storage. Consultar Storage Size y Egress del ciclo en la organización. Cotejar por hash cada objeto ya publicado. Ante una colisión con contenido diferente, preparar otra versión.
-3. Presentar las cantidades exactas a crear, reutilizar y asociar. Incluir en la aprobación cualquier migración pendiente, las políticas que realmente requieran intervención y el alcance de la recuperación. El conjunto máximo son 26 objetos y 26 referencias.
-4. Tras la autorización, registrar los objetos creados por la operación, verificar GET público y hash de todo el lote y aplicar las asociaciones por UUID en una transacción con comparación de URL anterior. Para recuperar las referencias, restaurar el mapa exportado únicamente donde la URL siga coincidiendo con la publicada. Una carga parcial se puede reanudar reutilizando objetos idénticos. La retirada de objetos creados precisa comprobar que carecen de referencias y autorizar la eliminación.
+| Elemento | Estado verificado |
+| --- | --- |
+| Bucket | `exercise-illustrations`, público, límite 512 KiB, solo `image/webp`. |
+| Objetos | 26 WebP en `exercises/` más el marcador `.emptyFolderPlaceholder` que crea el panel al abrir la carpeta. |
+| Políticas | Una sola política `exercise_illustrations_public_read` (`SELECT` para `anon` y `authenticated`, limitada al bucket). Sin políticas de escritura pública; las cargas usan el proceso administrativo. |
+| Migración | `2026_11_16_000000_add_exercise_image_url` aplicada y registrada; columna `image_url` y restricción `exercises_public_image_url`. |
+| Referencias | 26 de 26 ejercicios con URL, actualizados por UUID y slug dentro de una transacción e idempotentes (`image_url is null`). |
+| Integridad | Los 26 GET públicos responden 200 con `image/webp`, el tamaño exacto y el SHA-256 aprobado. Los md5 del conjunto de URLs y del texto de descripciones e instrucciones coinciden con el respaldo previo. |
+| Estado | `curl-predicador` sigue inactivo y fuera del catálogo público; el resto conserva su estado. |
+| API | `https://apiejericie.onrender.com` devuelve las 25 filas activas con `image_url`, descripciones e instrucciones intactas. El servicio usa esta misma base: los UUID y `updated_at` coinciden. |
+
+El respaldo de las 26 filas previas a la actualización se conservó fuera del repositorio. La recuperación consiste en vaciar `image_url` donde la URL siga siendo la publicada, sin tocar descripciones ni estados. Para rehacer una carga parcial basta reutilizar los objetos idénticos; la retirada de objetos exige comprobar que no tengan referencias.
+
+En la sesión de despliegue no había PostgreSQL local disponible, así que la suite reportó 37 casos: 3 ejecutados y 34 omitidos por requerir `FIT_TEST_HOST`. La cobertura funcional se completó contra producción en modo de solo lectura: esquema, restricción, migración registrada, política efectiva, 26 GET públicos con hash, asociaciones por UUID y el contrato real de la API.
