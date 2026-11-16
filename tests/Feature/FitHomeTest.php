@@ -472,3 +472,17 @@ it('conserva la sesión y expone la ilustración opcional con el ejercicio', fun
         ->assertJsonCount(1, 'data.workout_exercises.0.exercise_set_logs');
     expect(fn () => $exercise->forceFill(['image_url' => 'http://images.test/x.webp'])->save())->toThrow(QueryException::class);
 });
+
+it('verifica el WebP público antes de aplicar una referencia versionada', function () {
+    $base = 'https://images.test/storage/v1/object/public/exercise-illustrations';
+    config(['services.exercise_images.base_url' => $base]);
+    $url = "$base/exercises/sentadilla-v1.webp";
+    // WebP mínimo autogenerado para la respuesta HTTP de prueba.
+    $bytes = base64_decode('UklGRiQAAABXRUJQVlA4IBgAAAAwAQCdASoEAAMAAUAmJaQAA3AA/v02aAA=');
+    Http::fake([$url => Http::response($bytes, 200, ['Content-Type' => 'image/webp'])]);
+    $exercise = Exercise::where('slug', 'sentadilla')->sole();
+    $this->artisan('fit:exercise-image sentadilla 1')->assertSuccessful();
+    expect($exercise->fresh()->image_url)->toBeNull();
+    $this->artisan('fit:exercise-image sentadilla 1 --apply')->assertSuccessful();
+    expect($exercise->fresh()->image_url)->toBe($url);
+});

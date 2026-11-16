@@ -26,6 +26,8 @@ Los listados paginados aceptan `?page=2`. Sus filas están en `data.data`, con `
 {"success":false,"message":"Revisa los datos enviados.","errors":{"weight_kg":["The weight kg field must be between 1 and 500."]}}
 ```
 
+Las filas de catálogo y los ejercicios anidados en una sesión incluyen `description`, `instructions` e `image_url`. La ilustración es opcional y se obtiene directamente de su URL HTTPS pública. Los clientes pueden mostrar las instrucciones aunque el campo falte, sea nulo o falle la descarga. [Inventario y carga de ilustraciones](illustrations/README.md)
+
 ## Operaciones
 
 Las rutas siguientes son relativas al prefijo. Los parámetros de ruta son UUID. Las solicitudes de escritura aceptan únicamente los campos validados. Los campos de propiedad se derivan de las credenciales.

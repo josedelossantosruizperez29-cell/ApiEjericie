@@ -9,7 +9,7 @@
 | `equipment_capabilities` | equipment_id, slug, name, verified |
 | `user_equipment` | user_id, equipment_id |
 | `muscle_groups` | slug, name, parent_id |
-| `exercises` | slug, name, description, instructions, category, movement, difficulty, measurement, safety_notes, active, media_url, penalty_eligible, rep_limits, lower_impact_id |
+| `exercises` | slug, name, description, instructions, category, movement, difficulty, measurement, safety_notes, active, media_url, image_url (HTTPS nullable), penalty_eligible, rep_limits, lower_impact_id |
 | `exercise_muscle_groups` | exercise_id, muscle_group_id, role |
 | `exercise_equipment` | exercise_id, equipment_id, capability_id, accessory |
 | `guest_access_tokens` | user_id, token_hash, device_label, expires_at, revoked_at, last_used_at |
