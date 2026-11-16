@@ -54,7 +54,7 @@ class GeneratedPlanImporter
                         }
                     }
 
-                    return $this->persist($user, $payload);
+                    return $this->persist($user, $payload, $generation->training_difficulty);
                 });
                 $record->forceFill(['training_plan_id' => $result->id, 'recommendation' => ['plan_version' => $result->version],
                     'validation_status' => 'accepted', 'reason' => 'validated_v1']);
@@ -73,7 +73,7 @@ class GeneratedPlanImporter
         }, 3);
     }
 
-    private function persist(User $user, array $payload): TrainingPlan
+    private function persist(User $user, array $payload, string $difficulty): TrainingPlan
     {
         $goal = $user->userGoals()->where('status', 'active')->find($payload['goal_id']);
         $onboarding = $user->userOnboarding;
@@ -81,12 +81,15 @@ class GeneratedPlanImporter
             $this->invalid('user_context');
         }
         $plan = $user->trainingPlans()->save((new TrainingPlan)->forceFill([
-            'goal_id' => $goal->id, 'starts_on' => $payload['starts_on'], 'ends_on' => $payload['ends_on'], 'source' => 'ai', 'status' => 'active',
+            'training_difficulty' => $difficulty, 'goal_id' => $goal->id, 'starts_on' => $payload['starts_on'], 'ends_on' => $payload['ends_on'], 'source' => 'ai', 'status' => 'active',
             'version' => 1 + $user->trainingPlans()->where('starts_on', $payload['starts_on'])->max('version'),
         ]));
-        $catalog = app(ExerciseCatalog::class)->eligible($user)->get()->keyBy('id');
-        $limits = ($user->userPreference?->settings['plan_limits'] ?? []) + config('training.levels.'.$user->userProfile->level) + config('training');
+        $catalog = app(ExerciseCatalog::class)->eligible($user, $difficulty)->get()->keyBy('id');
+        $limits = TrainingDifficulty::limits($user, $difficulty);
         foreach ($payload['sessions'] as $day) {
+            if (count($day['exercises']) > $limits['max_exercises']) {
+                $this->invalid('exercise_count');
+            }
             $date = CarbonImmutable::parse($day['date']);
             if (! in_array($date->dayOfWeekIso, $onboarding->weekly_availability, true)
                 || $user->workoutSessions()->whereDate('scheduled_date', $day['date'])->whereNotIn('status', ['cancelled', 'rescheduled'])->exists()) {
@@ -104,7 +107,7 @@ class GeneratedPlanImporter
                 }
                 $seconds = $item['seconds'] ?? null;
                 $reps = $item['reps'] ?? null;
-                $repLimit = $exercise->rep_limits[$user->userProfile->level] ?? $limits['max_reps'];
+                $repLimit = min($exercise->rep_limits[$user->userProfile->level] ?? PHP_INT_MAX, $limits['max_reps']);
                 if ($exercise->measurement === 'reps' && $reps && ! $seconds && $reps <= $repLimit) {
                     $work = max($item['estimated_seconds'], $reps * max(1, (int) ($limits['seconds_per_rep'] ?? 1)));
                 } elseif ($exercise->measurement === 'time' && $seconds && ! $reps && $seconds <= ($limits['max_seconds_per_set'] ?? 0)) {

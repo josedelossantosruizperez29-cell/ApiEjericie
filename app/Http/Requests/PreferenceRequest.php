@@ -9,6 +9,7 @@ class PreferenceRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'training_difficulty' => 'sometimes|required|in:easy,intermediate,hard',
             'units' => 'sometimes|in:metric,imperial',
             'recovery' => 'sometimes|boolean',
             'daily_cutoff' => 'sometimes|date_format:H:i',

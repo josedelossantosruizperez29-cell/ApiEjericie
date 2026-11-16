@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Services\ExerciseCatalog;
 use App\Services\GeneratedPlanImporter;
 use App\Services\TrainingReports;
+use App\Services\TrainingDifficulty;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -37,16 +38,21 @@ class PlanGeneration
                 throw new \DomainException('Ya existe un plan activo o futuro.');
             }
 
-            return $user->aiGenerations()->save((new AiGeneration)->forceFill(['kind' => 'training_plan', 'model' => config('gemini.model') ?: 'unconfigured', 'schema_version' => '1', 'prompt_version' => 'fit-plan-v2', 'requested_at' => now(), 'request_key' => $key, 'status' => 'processing']));
+            return $user->aiGenerations()->save((new AiGeneration)->forceFill(['kind' => 'training_plan', 'model' => config('gemini.model') ?: 'unconfigured', 'schema_version' => '1', 'training_difficulty' => $user->userPreference()->value('training_difficulty') ?? 'intermediate', 'prompt_version' => 'fit-plan-v3', 'requested_at' => now(), 'request_key' => $key, 'status' => 'processing']));
         });
         if ($generation->wasRecentlyCreated) {
             try {
                 $goal = $user->userGoals()->where('status', 'active')->orderBy('priority')->firstOrFail();
                 $day = app(TrainingReports::class)->today($user);
                 $context = ['today' => $day->toDateString(), 'last_day' => $day->addDays(6)->toDateString(), 'goal' => $goal->only(['id', 'kind']), 'level' => $user->userProfile->level, 'available_weekdays_iso' => $user->userOnboarding->weekly_availability, 'minutes' => $user->userOnboarding->session_minutes,
-                    'limits' => ($user->userPreference?->settings['plan_limits'] ?? []) + config('training.levels.'.$user->userProfile->level) + array_intersect_key(config('training'), array_flip(['min_rest_seconds', 'max_rest_seconds', 'seconds_per_rep'])),
-                    'exercises' => $this->catalog->eligible($user)->get(['id', 'name', 'measurement', 'rep_limits'])->toArray()];
-                [$text,$usage] = $this->client->generate('Organiza una semana entre today y last_day usando solamente el objetivo, ejercicios, disponibilidad y límites suministrados. Usa reps para repeticiones o seconds para tiempo. estimated_seconds es por serie. No prescribas cargas.', $context, json_decode(file_get_contents(resource_path('schemas/training-plan.json')), true, flags: JSON_THROW_ON_ERROR));
+                    'training_difficulty' => $generation->training_difficulty,
+                    'limits' => TrainingDifficulty::limits($user, $generation->training_difficulty),
+                    'recovery' => (bool) $user->userPreference?->recovery,
+                    'equipment' => $user->availableEquipment()->pluck('slug'),
+                    'recent_sessions' => $user->workoutSessions()->latest('scheduled_date')->limit(7)->get(['status', 'kind']),
+                    'avoided_movements' => $user->userHealthConstraints->pluck('avoided_movements')->flatten()->filter()->values(),
+                    'exercises' => $this->catalog->eligible($user, $generation->training_difficulty)->get(['id', 'name', 'difficulty', 'movement', 'measurement', 'rep_limits'])->toArray()];
+                [$text,$usage] = $this->client->generate('Organiza una semana entre today y last_day usando solamente el objetivo, ejercicios, disponibilidad y límites suministrados. Usa reps para repeticiones o seconds para tiempo. estimated_seconds es por serie. Con easy elige variantes sencillas, menos ejercicios y series, descanso amplio y progresión gradual. Con intermediate equilibra volumen y recuperación. Con hard progresa en variantes, series o duración según experiencia y recuperación, sin acortar automáticamente los descansos. No prescribas cargas.', $context, json_decode(file_get_contents(resource_path('schemas/training-plan.json')), true, flags: JSON_THROW_ON_ERROR));
                 DB::transaction(function () use ($generation, $user, $text, $usage) {
                     User::whereKey($user->id)->lockForUpdate()->firstOrFail();
                     $locked = $user->aiGenerations()->lockForUpdate()->findOrFail($generation->id);

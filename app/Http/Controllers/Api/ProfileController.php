@@ -59,7 +59,7 @@ class ProfileController
 
     public function preferences(Request $r)
     {
-        return new ApiResult($r->user()->userPreference);
+        return new ApiResult($r->user()->userPreference ?? ['training_difficulty' => 'intermediate']);
     }
 
     public function savePreferences(PreferenceRequest $r, ProfileEditor $editor)
