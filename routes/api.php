@@ -37,6 +37,7 @@ Route::prefix('v1')->group(function () {
         Route::get('workouts/week', [WorkoutController::class, 'week']);
         Route::get('workouts/{id}', [WorkoutController::class, 'show']);
         Route::post('workouts/{id}/start', [WorkoutController::class, 'start']);
+        Route::post('workouts/{id}/exercises/{assignment}/replace', [WorkoutController::class, 'replace']);
         Route::post('workouts/{id}/sets', [WorkoutController::class, 'sets']);
         Route::put('workouts/{id}/sets/{setId}', [WorkoutController::class, 'sets']);
         Route::post('workouts/{id}/complete', [WorkoutController::class, 'complete']);

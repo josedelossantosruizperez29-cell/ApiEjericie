@@ -9,6 +9,7 @@ use App\Services\TrainingReports;
 use App\Services\WorkoutCalendar;
 use App\Services\WorkoutLedger;
 use App\Services\WorkoutResults;
+use App\Services\WorkoutReplacement;
 use Illuminate\Http\Request;
 
 class WorkoutController
@@ -58,6 +59,13 @@ class WorkoutController
     public function sets(SetRequest $r, string $id, WorkoutResults $results, ?string $setId = null)
     {
         return new ApiResult($results->record($r->user(), $id, $r->validated(), $setId));
+    }
+
+    public function replace(Request $r, string $id, string $assignment, WorkoutReplacement $service)
+    {
+        $data = $r->validate(['operation_id' => 'required|uuid', 'expected_exercise_id' => 'required|uuid']);
+
+        return new ApiResult($service->replace($r->user(), $id, $assignment, $data['expected_exercise_id'], $data['operation_id']));
     }
 
     public function progress(Request $r, string $id, WorkoutResults $results)

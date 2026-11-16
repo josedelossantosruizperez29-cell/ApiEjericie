@@ -9,6 +9,7 @@ class SetRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'expected_exercise_id' => 'sometimes|required|uuid',
             'workout_exercise_id' => 'required|uuid',
             'set_number' => 'required|integer|min:1|max:100',
             'reps' => 'sometimes|integer|between:1,1000',

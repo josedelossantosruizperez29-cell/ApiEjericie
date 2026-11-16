@@ -23,6 +23,10 @@ class WorkoutResults
                 throw new DomainException('Jornada cerrada o sin iniciar.');
             }
             $item = $session->workoutExercises()->findOrFail($data['workout_exercise_id']);
+            if (isset($data['expected_exercise_id']) && $item->exercise_id !== $data['expected_exercise_id']) {
+                throw new DomainException('El ejercicio cambió. Revisa la serie antes de guardarla.');
+            }
+            unset($data['expected_exercise_id']);
             if (! $this->valid($item, $data)) {
                 throw ValidationException::withMessages(['set' => ['Serie incompatible con la prescripción.']]);
             }
