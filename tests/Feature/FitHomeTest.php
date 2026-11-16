@@ -494,3 +494,14 @@ it('verifica el WebP público antes de aplicar una referencia versionada', funct
     $this->artisan($command)->assertSuccessful();
     expect($exercise->fresh()->image_url)->toBe($url);
 });
+
+it('mantiene la referencia vacía si el tipo o el contenido remoto no es WebP', function (string $type, string $body) {
+    $base = 'https://images.test/storage/v1/object/public/exercise-illustrations';
+    config(['services.exercise_images.base_url' => $base]);
+    Http::fake(["$base/*" => Http::response($body, 200, ['Content-Type' => $type])]);
+    $this->artisan('fit:exercise-image plancha 2 --apply')->assertFailed();
+    expect(Exercise::where('slug', 'plancha')->sole()->image_url)->toBeNull();
+})->with([
+    'tipo anunciado incorrecto' => ['text/html', base64_decode('UklGRiQAAABXRUJQVlA4IBgAAAAwAQCdASoEAAMAAUAmJaQAA3AA/v02aAA=')],
+    'tipo anunciado correcto con contenido inválido' => ['image/webp', '<html>error</html>'],
+]);
