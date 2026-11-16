@@ -183,3 +183,15 @@ Ejemplo de respuesta cuando falta la preparación y el peso comestible:
 ```
 
 Gemini puede describir la preparación y señalar otras ambigüedades. Laravel admite conversiones exactas de kg a g, consulta referencias verificadas y calcula los nutrientes. Para una coincidencia confirmable devuelve la referencia con su fuente y un objeto confirmation con food_item_id, quantity y unit. Flutter debe mostrar el resultado para que la persona revise porciones, preparación y unidades. Solo tras su confirmación crea la comida y envía las porciones al endpoint existente de items. El dashboard consulta los totales del diario confirmado. Los errores del análisis mantienen el formato de la API, con 401 para credenciales, 422 para entradas, 429 para límite local, 502 para respuesta inválida y 503 para indisponibilidad del proveedor.
+
+## Sesiones y personalización
+
+La asignación workout_exercises conserva la posición y la prescripción de cada ejercicio. Las series y los ajustes por penalización se relacionan con la asignación. WorkoutLedger y WorkoutResults bloquean primero al usuario y después la sesión. Flutter mantiene el descanso en la pantalla y obtiene las asignaciones y su catálogo mediante el detalle de workout. El perfil ya distingue capacidad física (level) y preferencias. PlanGeneration solicita a Gemini ejercicios del catálogo elegible y GeneratedPlanImporter valida calendario, volumen y duración antes de guardar.
+
+GET y PUT /preferences exponen training_difficulty (easy, intermediate o hard). La preferencia inicial es intermediate. La generación toma una instantánea al reservar la solicitud y aplica los límites de config/training.php junto con la capacidad física. Cambiar la preferencia afecta a los planes futuros.
+
+POST /workouts/{id}/exercises/{assignment}/replace recibe operation_id y expected_exercise_id (UUID). Devuelve assignment con los datos de catálogo y los contadores replacements_used y replacements_remaining. Repetir la misma operación devuelve su resultado original. El detalle de la sesión indica replacements_used. Una asignación con series, una sesión cerrada, un cupo agotado o la ausencia de alternativas producen 409. Para registrar series el cliente puede enviar expected_exercise_id.
+
+Desplegar primero ambas migraciones aditivas y después Laravel. Verificar con un invitado el contrato antiguo y el nuevo en staging, comprobar la nueva interfaz Flutter y validar el parche sobre la release instalada 1.0.0+1 antes de promoverlo a stable. Si se retira el cliente, conservar los datos del contador, el historial y las preferencias.
+
+La recuperación limita la complejidad y el volumen incluso con la preferencia Difícil. Si Gemini sigue indisponible después de los reintentos, Laravel puede reutilizar las jornadas completadas del último plan aceptado del mismo usuario, objetivo y dificultad. Conserva sus días de la semana y revalida el nuevo calendario, las prescripciones y el catálogo vigente. El nuevo plan queda identificado con source=recovered y la recomendación referencia el plan anterior. Si el historial ya no cumple los requisitos, la API conserva el error del proveedor.

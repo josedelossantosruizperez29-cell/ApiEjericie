@@ -321,6 +321,11 @@ it('valida Gemini por HTTP y conserva idempotencia, errores y aislamiento', func
     if ($case === 'nonexistent') {
         $item['id'] = fake()->uuid();
     }
+    if ($case === 'easy_volume') {
+        app(\App\Services\ProfileEditor::class)->preferences($user, ['training_difficulty' => 'easy']);
+        $item['rest_seconds'] = 30;
+        $item['reps'] = 12;
+    }
     if ($case === 'duration') {
         $item['estimated_seconds'] = 9000;
     }
@@ -342,7 +347,7 @@ it('valida Gemini por HTTP y conserva idempotencia, errores y aislamiento', func
         Http::assertSentCount(1);
         $this->postJson($url, ['request_key' => fake()->uuid()], $headers)->assertConflict();
     }
-})->with([['valid', 200], ['nonexistent', 422], ['equipment', 422], ['malformed', 422], ['duration', 422], ['availability', 422], ['timeout', 503], ['provider', 503], ['configuration', 503]]);
+})->with([['valid', 200], ['nonexistent', 422], ['easy_volume', 422], ['equipment', 422], ['malformed', 422], ['duration', 422], ['availability', 422], ['timeout', 503], ['provider', 503], ['configuration', 503]]);
 
 it('conserva resultados parciales al vencer y rechaza series ajenas', function () {
     $session = fitSession($this->plan, 0);
@@ -505,3 +510,142 @@ it('mantiene la referencia vacía si el tipo o el contenido remoto no es WebP', 
     'tipo anunciado incorrecto' => ['text/html', base64_decode('UklGRiQAAABXRUJQVlA4IBgAAAAwAQCdASoEAAMAAUAmJaQAA3AA/v02aAA=')],
     'tipo anunciado correcto con contenido inválido' => ['image/webp', '<html>error</html>'],
 ]);
+
+it('mantiene la dificultad solicitada desde Gemini hasta el plan aunque cambie la preferencia', function (string $difficulty, int $maxSets) {
+    $guest = $this->postJson('/api/v1/guests', [
+        'height_cm' => 170, 'age_years' => 30, 'weight_kg' => 70, 'level' => 'advanced',
+        'goal' => 'strength_cardio', 'session_minutes' => 30, 'weekly_availability' => range(1, 7), 'complete' => true,
+    ])->assertCreated()->json('data');
+    $headers = ['X-Guest-Id' => $guest['public_id'], 'Authorization' => 'Bearer '.$guest['token']];
+    $user = User::where('public_id', $guest['public_id'])->sole();
+    $this->getJson('/api/v1/preferences', $headers)->assertJsonPath('data.training_difficulty', 'intermediate');
+    $this->putJson('/api/v1/preferences', ['training_difficulty' => 'extreme'], $headers)->assertUnprocessable();
+    $this->putJson('/api/v1/preferences', ['training_difficulty' => $difficulty], $headers)->assertSuccessful();
+    $this->getJson('/api/v1/preferences', $headers)->assertJsonPath('data.training_difficulty', $difficulty);
+    $newDifficulty = $difficulty === 'easy' ? 'hard' : 'easy';
+    config(['gemini.key' => 'fixture', 'gemini.model' => 'fixture']);
+    Http::fake(function ($request) use ($user, $difficulty, $newDifficulty, $maxSets) {
+        $context = json_decode($request['contents'][0]['parts'][0]['text'], true);
+        expect($context['training_difficulty'])->toBe($difficulty)->and($context['limits']['max_sets'])->toBe($maxSets);
+        app(\App\Services\ProfileEditor::class)->preferences($user, ['training_difficulty' => $newDifficulty]);
+        $today = $context['today'];
+        $item = ['id' => Exercise::where('slug', 'sentadilla')->sole()->id, 'sets' => $maxSets, 'reps' => 5, 'rest_seconds' => 30, 'estimated_seconds' => 15];
+        $plan = ['goal_id' => $context['goal']['id'], 'starts_on' => $today, 'ends_on' => $today, 'sessions' => [['date' => $today, 'exercises' => [$item]]]];
+
+        return Http::response(['candidates' => [['finishReason' => 'STOP', 'content' => ['parts' => [['text' => json_encode($plan)]]]]]]);
+    });
+    $gen = app(PlanGeneration::class)->generate($user, fake()->uuid());
+    expect($gen->status)->toBe('validated');
+    $plan = $user->trainingPlans()->sole();
+    expect($plan->training_difficulty)->toBe($difficulty)->and($user->userPreference()->value('training_difficulty'))->toBe($newDifficulty);
+    $session = $plan->workoutSessions()->sole();
+    $path = "/api/v1/workouts/$session->id";
+    $this->postJson("$path/start", [], $headers)->assertOk();
+    $item = $session->workoutExercises()->sole();
+    $url = "$path/exercises/$item->id/replace";
+    $op = ['operation_id' => fake()->uuid(), 'expected_exercise_id' => $item->exercise_id];
+    $res = $this->postJson($url, $op, $headers)->assertOk()->assertJsonPath('data.replacements_remaining', 2)->json('data');
+    $this->postJson($url, $op, $headers)->assertOk()->assertJsonPath('data.assignment.exercise.id', $res['assignment']['exercise']['id']);
+    $this->putJson('/api/v1/preferences', ['training_difficulty' => 'intermediate'], $headers)->assertSuccessful();
+    expect($session->fresh()->replacements_used)->toBe(1)->and($plan->fresh()->training_difficulty)->toBe($difficulty);
+    expect(app(\App\Services\TrainingReports::class)->adherence($user)['completed'])->toBe(0);
+    expect($res['assignment']['exercise']['instructions'])->not->toBeEmpty()->and($res['assignment']['sets'])->toBe($maxSets);
+    for ($n = 1; $n <= $maxSets; $n++) {
+        if ($n === 2) {
+            $this->postJson($url, ['operation_id' => fake()->uuid(), 'expected_exercise_id' => $item->fresh()->exercise_id], $headers)->assertConflict();
+        }
+        $this->postJson("$path/sets", ['workout_exercise_id' => $item->id, 'set_number' => $n, 'reps' => 5], $headers)->assertSuccessful();
+    }
+    $newOp = ['operation_id' => fake()->uuid(), 'expected_exercise_id' => $item->fresh()->exercise_id];
+    $this->postJson($url, $newOp, $headers)->assertConflict();
+    $this->getJson("$path/progress", $headers)->assertJsonPath('data.fulfilled', true);
+    $this->postJson("$path/complete", [], $headers)->assertOk();
+    $this->postJson($url, $newOp, $headers)->assertConflict();
+    $this->getJson($path, $headers)->assertOk()->assertJsonPath('data.replacements_used', 1);
+    expect(app(\App\Services\TrainingReports::class)->adherence($user)['completed'])->toBe(1);
+    if ($difficulty === 'hard') {
+        $this->travel(7)->days();
+        app(\App\Services\ProfileEditor::class)->preferences($user, ['training_difficulty' => 'hard']);
+        $this->mock(GeminiClient::class)->shouldReceive('generate')->once()
+            ->andThrow(new \Symfony\Component\HttpKernel\Exception\HttpException(503, 'provider_error'));
+        $recovered = app(PlanGeneration::class)->generate($user->fresh(), fake()->uuid());
+        expect($recovered->status)->toBe('validated');
+        $next = $recovered->aiPlanRecommendations()->sole()->trainingPlan;
+        expect($next->source)->toBe('recovered')->and($next->training_difficulty)->toBe('hard')
+            ->and($next->workoutSessions()->sole()->replacements_used)->toBe(0)
+            ->and($session->fresh()->replacements_used)->toBe(1);
+    }
+})->with([['easy', 2], ['intermediate', 3], ['hard', 4]]);
+
+it('serializa reemplazos y conserva el cupo ante rechazos o reintentos', function () {
+    DB::table('user_profiles')->insert(['user_id' => $this->user->id, 'level' => 'beginner']);
+    $session = fitSession($this->plan, 0);
+    $item = $session->workoutExercises()->save((new WorkoutExercise)->forceFill([
+        'exercise_id' => Exercise::where('slug', 'sentadilla')->sole()->id,
+        'position' => 1, 'sets' => 2, 'base_reps' => 5, 'prescription' => ['measurement' => 'reps'],
+    ]));
+    $service = app(\App\Services\WorkoutReplacement::class);
+    $replace = fn () => $service->replace($this->user, $session->id, $item->id, $item->fresh()->exercise_id, fake()->uuid());
+    expect($replace)->toThrow(DomainException::class);
+    $this->ledger->start($this->user, $session->id);
+    $other = User::create(['name' => 'Otro']);
+    expect(fn () => $service->replace($other, $session->id, $item->id, $item->exercise_id, fake()->uuid()))
+        ->toThrow(\Illuminate\Database\Eloquent\ModelNotFoundException::class);
+    $constraint = DB::table('user_health_constraints')->insertGetId(['user_id' => $this->user->id, 'description' => 'Pendiente de clasificar']);
+    expect($replace)->toThrow(DomainException::class)->and($session->fresh()->replacements_used)->toBe(0);
+    DB::table('user_health_constraints')->where('id', $constraint)->delete();
+    $operation = fake()->uuid();
+    $workers = [];
+    DB::beginTransaction();
+    try {
+        User::whereKey($this->user->id)->lockForUpdate()->sole();
+        for ($i = 0; $i < 2; $i++) {
+            $worker = new Process([PHP_BINARY, base_path('tests/Support/ledger-worker.php'), 'replace', (string) $this->user->id,
+                $session->id, DB::connection()->getDatabaseName(), $item->id, $item->exercise_id, $operation]);
+            $worker->start();
+            $workers[] = $worker;
+        }
+        $until = microtime(true) + 8;
+        do {
+            DB::statement('SELECT pg_stat_clear_snapshot()');
+            $waiting = (int) DB::selectOne("SELECT count(*) AS n FROM pg_stat_activity WHERE datname=current_database() AND application_name='fit-ledger-worker' AND wait_event_type='Lock'")->n;
+            if ($waiting === 2) {
+                break;
+            }
+            usleep(25000);
+        } while (microtime(true) < $until);
+    } finally {
+        DB::commit();
+    }
+    foreach ($workers as $worker) {
+        $worker->wait();
+        expect($worker->getErrorOutput().$worker->getOutput())->toBe('')->and($worker->isSuccessful())->toBeTrue();
+    }
+    expect($waiting)->toBe(2)->and($session->fresh()->replacements_used)->toBe(1);
+    expect(fn () => $service->replace($this->user, $session->id, $item->id, $item->exercise_id, fake()->uuid()))->toThrow(DomainException::class);
+    expect($replace()['replacements_remaining'])->toBe(1)->and($replace()['replacements_remaining'])->toBe(0);
+    expect($replace)->toThrow(DomainException::class)->and(DB::table('workout_replacements')->count())->toBe(3);
+});
+
+it('preserva el ajuste por penalización y las series de otra asignación', function () {
+    DB::table('user_profiles')->insert(['user_id' => $this->user->id, 'level' => 'beginner']);
+    fitSession($this->plan, 1);
+    $session = fitSession($this->plan, 0);
+    foreach (['sentadilla', 'flexion'] as $position => $slug) {
+        $session->workoutExercises()->save((new WorkoutExercise)->forceFill([
+            'exercise_id' => Exercise::where('slug', $slug)->sole()->id, 'sets' => 2, 'position' => $position + 1,
+            'base_reps' => 5, 'prescription' => ['measurement' => 'reps'],
+        ]));
+    }
+    $this->ledger->start($this->user, $session->id);
+    [$first, $second] = $session->workoutExercises()->orderBy('position')->get();
+    $results = app(WorkoutResults::class);
+    $log = $results->record($this->user, $session->id, ['workout_exercise_id' => $second->id, 'set_number' => 1, 'reps' => 5]);
+    $before = $results->progress($session->fresh());
+    $adjustment = $first->workoutPenaltyApplication->getAttributes();
+    app(\App\Services\WorkoutReplacement::class)->replace($this->user, $session->id, $first->id, $first->exercise_id, fake()->uuid());
+    expect($results->progress($session->fresh()))->toBe($before)
+        ->and($second->exerciseSetLogs()->sole()->id)->toBe($log->id)
+        ->and($first->fresh()->workoutPenaltyApplication->getAttributes())->toBe($adjustment)
+        ->and($this->user->penalties()->where('status', 'pending')->count())->toBe(1);
+});

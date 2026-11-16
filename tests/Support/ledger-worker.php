@@ -16,4 +16,5 @@ $ledger = app(WorkoutLedger::class);
 match ($argv[1]) {
     'reconcile' => $ledger->reconcile($user),
     'complete' => $ledger->complete($user, $argv[3]),
+    'replace' => app(\App\Services\WorkoutReplacement::class)->replace($user, $argv[3], $argv[5], $argv[6], $argv[7]),
 };
