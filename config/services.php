@@ -14,6 +14,8 @@ return [
     |
     */
 
+    'exercise_images' => ['base_url' => env('EXERCISE_ILLUSTRATIONS_BASE_URL')],
+
     'postmark' => [
         'key' => env('POSTMARK_API_KEY'),
     ],

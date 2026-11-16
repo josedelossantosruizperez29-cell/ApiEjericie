@@ -444,3 +444,31 @@ it('revierte la importación si falla PostgreSQL al confirmar el consumo', funct
     expect($gen->status)->toBe('failed')->and($gen->error_code)->toBe('database')
         ->and($user->trainingPlans()->count())->toBe(0)->and($gen->aiPlanRecommendations()->count())->toBe(0);
 });
+
+it('conserva la sesión y expone la ilustración opcional con el ejercicio', function () {
+    $guest = $this->postJson('/api/v1/guests', ['name' => 'Ana'])->assertCreated()->json('data');
+    $headers = ['X-Guest-Id' => $guest['public_id'], 'Authorization' => 'Bearer '.$guest['token']];
+    $user = User::where('public_id', $guest['public_id'])->sole();
+    $session = fitSession(fitPlan($user), 0);
+    fitRecordWorkout($user, $session);
+    $exercise = Exercise::where('slug', 'sentadilla')->sole();
+    $migration = require database_path('migrations/2026_11_16_000000_add_exercise_image_url.php');
+    $migration->down();
+    $migration->up();
+    $this->getJson("/api/v1/exercises/$exercise->id", $headers)->assertOk()
+        ->assertJsonStructure(['data' => ['image_url']])->assertJsonPath('data.image_url', null);
+    $base = 'https://images.test/storage/v1/object/public/exercise-illustrations';
+    config(['services.exercise_images.base_url' => $base]);
+    $url = "$base/exercises/sentadilla-v1.webp";
+    Http::fake([$url => Http::response('missing', 404)]);
+    $this->artisan('fit:exercise-image sentadilla 1 --apply')->assertFailed();
+    expect($exercise->fresh()->image_url)->toBeNull();
+    $exercise->image_url = $url;
+    $exercise->save();
+    $this->getJson("/api/v1/workouts/$session->id", $headers)->assertOk()
+        ->assertJsonPath('data.workout_exercises.0.exercise.id', $exercise->id)
+        ->assertJsonPath('data.workout_exercises.0.exercise.image_url', $url)
+        ->assertJsonPath('data.workout_exercises.0.exercise.instructions', $exercise->instructions)
+        ->assertJsonCount(1, 'data.workout_exercises.0.exercise_set_logs');
+    expect(fn () => $exercise->forceFill(['image_url' => 'http://images.test/x.webp'])->save())->toThrow(QueryException::class);
+});

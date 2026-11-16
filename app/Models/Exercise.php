@@ -14,6 +14,8 @@ class Exercise extends Model
 
     protected $table = 'exercises';
 
+    protected $attributes = ['image_url' => null];
+
     protected function casts(): array
     {
         return [
