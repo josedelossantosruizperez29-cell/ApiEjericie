@@ -63,3 +63,18 @@ Laravel requiere migración, configuración de la base pública y asociación de
 El cambio Flutter está escrito en Dart y usa la caché de imágenes en memoria de Flutter. Los datos JSON siguen los tiempos de vida e invalidaciones de ResourceCache. La imagen se solicita al abrir el detalle o la sesión. En sesión activa también se precarga la siguiente. La siguiente visita puede descargar de nuevo si Flutter expulsó la imagen o se reinició el proceso.
 
 La entrega móvil requiere comprobar el parche sobre un Android que tenga la release Shorebird 1.0.0+1 antes de distribuirlo. La ilustración viaja por HTTPS y el icono alternativo ya se utilizaba en la aplicación. La publicación en Render, Supabase o Shorebird requiere autorización específica. [Compatibilidad de parches](https://docs.shorebird.dev/code-push/faq/)
+
+## Verificación previa al despliegue del 16 de noviembre de 2026
+
+Se comprobaron los 26 archivos del inventario. Todos decodifican como WebP de 1024 × 768, ocupan 857 572 bytes en total y coinciden en tamaño y SHA-256 con el CSV. En PostgreSQL local se cotejaron los 26 pares UUID/slug con el registro de asociaciones, sus instrucciones, descripciones y URL. Las 26 descargas HTTPS locales devolvieron el MIME y el hash esperados. El único ejercicio inactivo es el curl predicador. Laravel pasó 37 pruebas con 237 aserciones.
+
+La conexión efectiva local usa PDO PostgreSQL con libpq 16.15, conexión directa por IPv6 en el puerto 5432, rol postgres y SSL requerido. No se detectó precedencia de DB_URL, contraseña del shell ni caché de configuración. Hubo negociación TLS 1.3 y la base rechazó la autenticación antes de ejecutar la primera consulta. El almacén de confianza del sistema no verificó por sí solo la CA de Supabase. Para usar verify-full se necesita la CA del proyecto. El endpoint de salud del servicio Render respondió 200 y su implementación devuelve un JSON estático.
+
+Storage devolvió HTTP 400 y el error interno 404 «Bucket not found» al GET anónimo de sentadilla-v2.webp. El panel pidió iniciar sesión. La existencia administrativa del bucket, el plan, las cuotas, las políticas RLS, los UUID y el estado de migraciones en producción quedan sin verificar.
+
+Antes de solicitar la aprobación de escritura:
+
+1. Contrastar el destino de la conexión efectiva de Render con la referencia en Supabase. Con credenciales vigentes, consultar en modo de solo lectura el catálogo, las columnas, las claves foráneas y el registro de migraciones. Exportar UUID, slug, estado y URL previa por ejercicio. Resolver las diferencias de UUID por entorno antes de aprobar el mapa de producción.
+2. Consultar el bucket, objetos, restricciones MIME y políticas efectivas, incluidas las globales de Storage. Consultar Storage Size y Egress del ciclo en la organización. Cotejar por hash cada objeto ya publicado. Ante una colisión con contenido diferente, preparar otra versión.
+3. Presentar las cantidades exactas a crear, reutilizar y asociar. Incluir en la aprobación cualquier migración pendiente, las políticas que realmente requieran intervención y el alcance de la recuperación. El conjunto máximo son 26 objetos y 26 referencias.
+4. Tras la autorización, registrar los objetos creados por la operación, verificar GET público y hash de todo el lote y aplicar las asociaciones por UUID en una transacción con comparación de URL anterior. Para recuperar las referencias, restaurar el mapa exportado únicamente donde la URL siga coincidiendo con la publicada. Una carga parcial se puede reanudar reutilizando objetos idénticos. La retirada de objetos creados precisa comprobar que carecen de referencias y autorizar la eliminación.
