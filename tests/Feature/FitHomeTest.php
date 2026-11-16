@@ -483,6 +483,14 @@ it('verifica el WebP público antes de aplicar una referencia versionada', funct
     $exercise = Exercise::where('slug', 'sentadilla')->sole();
     $this->artisan('fit:exercise-image sentadilla 1')->assertSuccessful();
     expect($exercise->fresh()->image_url)->toBeNull();
-    $this->artisan('fit:exercise-image sentadilla 1 --apply')->assertSuccessful();
+    $command = 'fit:exercise-image sentadilla 1 --apply';
+    $this->artisan($command.' --id='.fake()->uuid())->assertFailed();
+    $this->artisan($command.' --sha256='.str_repeat('0', 64))->assertFailed();
+    $old = "$base/exercises/sentadilla-v0.webp";
+    $exercise->forceFill(['image_url' => $old])->save();
+    $this->artisan($command)->assertFailed();
+    expect($exercise->fresh()->image_url)->toBe($old);
+    $this->artisan($command." --id=$exercise->id --previous-url=$old --sha256=".hash('sha256', $bytes))->assertSuccessful();
+    $this->artisan($command)->assertSuccessful();
     expect($exercise->fresh()->image_url)->toBe($url);
 });
