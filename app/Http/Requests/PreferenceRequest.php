@@ -10,6 +10,7 @@ class PreferenceRequest extends FormRequest
     {
         return [
             'training_difficulty' => 'sometimes|required|in:easy,intermediate,hard',
+            'training_mode' => 'sometimes|required|in:machine,bodyweight',
             'units' => 'sometimes|in:metric,imperial',
             'recovery' => 'sometimes|boolean',
             'daily_cutoff' => 'sometimes|date_format:H:i',

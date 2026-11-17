@@ -66,8 +66,12 @@ class ProfileEditor
             if (isset($data['exercise_preferences'])) {
                 $prefs->settings = array_merge($prefs->settings ?? [], Arr::only($data, 'exercise_preferences'));
             }
+            $user->userPreference()->save($prefs)->refresh();
+            if (($data['training_mode'] ?? null) === TrainingMode::MACHINE) {
+                TrainingMode::attachMachine($user);
+            }
 
-            return $user->userPreference()->save($prefs)->refresh();
+            return $prefs;
         });
     }
 }
