@@ -8,8 +8,8 @@ use App\Http\Resources\ApiResult;
 use App\Services\TrainingReports;
 use App\Services\WorkoutCalendar;
 use App\Services\WorkoutLedger;
-use App\Services\WorkoutResults;
 use App\Services\WorkoutReplacement;
+use App\Services\WorkoutResults;
 use Illuminate\Http\Request;
 
 class WorkoutController
