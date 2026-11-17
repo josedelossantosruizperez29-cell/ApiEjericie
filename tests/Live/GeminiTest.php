@@ -27,6 +27,7 @@ it('genera un plan real con EVO 500 y lo recupera mediante la API', function () 
         'level' => 'beginner', 'goal' => 'strength_cardio', 'weekly_availability' => [now()->addDay()->dayOfWeekIso], 'session_minutes' => 20,
         'equipment_ids' => [$machine->id], 'complete' => true])->json('data');
     $headers = ['X-Guest-Id' => $guest['public_id'], 'Authorization' => 'Bearer '.$guest['token']];
+    $this->putJson('/api/v1/preferences', ['training_mode' => 'machine'], $headers)->assertSuccessful();
     $result = $this->postJson('/api/v1/ai/training-plans/generate', ['request_key' => (string) Str::uuid()], $headers);
     if ($result->status() !== 200) {
         $this->fail('Generación: HTTP '.$result->status().' / '.($result->json('errors.reason') ?? 'unexpected'));

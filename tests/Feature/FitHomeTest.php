@@ -17,12 +17,17 @@ use App\Services\ExerciseCatalog;
 use App\Services\GeneratedPlanImporter;
 use App\Services\GuestIdentity;
 use App\Services\NutritionTotals;
+use App\Services\ProfileEditor;
+use App\Services\TrainingReports;
 use App\Services\WorkoutCalendar;
 use App\Services\WorkoutLedger;
+use App\Services\WorkoutReplacement;
 use App\Services\WorkoutResults;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Symfony\Component\Process\Process;
 use Tests\Support\LocalPostgres;
 
@@ -59,6 +64,11 @@ function fitSession(TrainingPlan $plan, int $daysAgo, string $kind = 'strength',
         'scheduled_date' => $date, 'kind' => $kind, 'status' => $status, 'user_id' => $plan->user_id,
         'timezone' => 'UTC', 'cutoff_at' => $date->copy()->endOfDay(),
     ]))->refresh();
+}
+
+function fitMode(User $user, string $mode = 'machine'): void
+{
+    DB::table('user_preferences')->updateOrInsert(['user_id' => $user->id], ['training_mode' => $mode]);
 }
 
 function fitRecordWorkout(User $user, WorkoutSession $session): void
@@ -316,13 +326,14 @@ it('valida Gemini por HTTP y conserva idempotencia, errores y aislamiento', func
     $user = User::where('public_id', $guest['public_id'])->sole();
     $headers = ['X-Guest-Id' => $guest['public_id'], 'Authorization' => 'Bearer '.$guest['token']];
     config(['gemini.key' => $case === 'configuration' ? null : 'fixture', 'gemini.model' => 'fixture-model']);
+    fitMode($user);
     $date = today()->addDay()->toDateString();
     $item = ['id' => Exercise::where('slug', $case === 'equipment' ? 'press-sentado' : 'sentadilla')->sole()->id, 'sets' => 1, 'reps' => 5, 'rest_seconds' => 20, 'estimated_seconds' => 15];
     if ($case === 'nonexistent') {
         $item['id'] = fake()->uuid();
     }
     if ($case === 'easy_volume') {
-        app(\App\Services\ProfileEditor::class)->preferences($user, ['training_difficulty' => 'easy']);
+        app(ProfileEditor::class)->preferences($user, ['training_difficulty' => 'easy']);
         $item['rest_seconds'] = 30;
         $item['reps'] = 12;
     }
@@ -384,6 +395,7 @@ it('solo usa referencias verificables en las comidas y aísla el historial', fun
 it('persiste una falla inesperada y recupera una solicitud interrumpida', function () {
     $guest = $this->postJson('/api/v1/guests', ['age_years' => 28, 'height_cm' => 172, 'weight_kg' => 70, 'goal' => 'strength_cardio', 'weekly_availability' => [1], 'session_minutes' => 20, 'complete' => true])->json('data');
     $headers = ['X-Guest-Id' => $guest['public_id'], 'Authorization' => 'Bearer '.$guest['token']];
+    fitMode(User::where('public_id', $guest['public_id'])->sole());
     $mock = Mockery::mock(GeminiClient::class);
     $mock->shouldReceive('generate')->once()->andThrow(new RuntimeException('private diagnostic'));
     app()->instance(GeminiClient::class, $mock);
@@ -421,6 +433,7 @@ it('analiza sin guardar y confirma solo una porción con referencia verificada',
 it('conserva una única generación activa durante la llamada y descarta respuestas tardías', function () {
     $guest = $this->postJson('/api/v1/guests', ['age_years' => 30, 'height_cm' => 170, 'weight_kg' => 70, 'goal' => 'strength_cardio', 'weekly_availability' => [1], 'session_minutes' => 20, 'complete' => true])->json('data');
     $user = User::where('public_id', $guest['public_id'])->sole();
+    fitMode($user);
     $key = fake()->uuid();
     config(['gemini.key' => 'fixture', 'gemini.model' => 'fixture']);
     Http::fake(function () use ($user, $key) {
@@ -440,6 +453,7 @@ it('conserva una única generación activa durante la llamada y descarta respues
 it('revierte la importación si falla PostgreSQL al confirmar el consumo', function () {
     $guest = $this->postJson('/api/v1/guests', ['age_years' => 30, 'height_cm' => 170, 'weight_kg' => 70, 'goal' => 'strength_cardio', 'weekly_availability' => [1, 2, 3, 4, 5, 6, 7], 'session_minutes' => 20, 'complete' => true])->json('data');
     $user = User::where('public_id', $guest['public_id'])->sole();
+    fitMode($user);
     config(['gemini.key' => 'fixture', 'gemini.model' => 'fixture']);
     DB::statement("ALTER TABLE ai_generations ADD CHECK (jsonb_exists(usage, 'totalTokenCount') = false)");
     $day = today()->addDay()->toDateString();
@@ -518,6 +532,7 @@ it('mantiene la dificultad solicitada desde Gemini hasta el plan aunque cambie l
     ])->assertCreated()->json('data');
     $headers = ['X-Guest-Id' => $guest['public_id'], 'Authorization' => 'Bearer '.$guest['token']];
     $user = User::where('public_id', $guest['public_id'])->sole();
+    fitMode($user);
     $this->getJson('/api/v1/preferences', $headers)->assertJsonPath('data.training_difficulty', 'intermediate');
     $this->putJson('/api/v1/preferences', ['training_difficulty' => 'extreme'], $headers)->assertUnprocessable();
     $this->putJson('/api/v1/preferences', ['training_difficulty' => $difficulty], $headers)->assertSuccessful();
@@ -527,7 +542,7 @@ it('mantiene la dificultad solicitada desde Gemini hasta el plan aunque cambie l
     Http::fake(function ($request) use ($user, $difficulty, $newDifficulty, $maxSets) {
         $context = json_decode($request['contents'][0]['parts'][0]['text'], true);
         expect($context['training_difficulty'])->toBe($difficulty)->and($context['limits']['max_sets'])->toBe($maxSets);
-        app(\App\Services\ProfileEditor::class)->preferences($user, ['training_difficulty' => $newDifficulty]);
+        app(ProfileEditor::class)->preferences($user, ['training_difficulty' => $newDifficulty]);
         $today = $context['today'];
         $item = ['id' => Exercise::where('slug', 'sentadilla')->sole()->id, 'sets' => $maxSets, 'reps' => 5, 'rest_seconds' => 30, 'estimated_seconds' => 15];
         $plan = ['goal_id' => $context['goal']['id'], 'starts_on' => $today, 'ends_on' => $today, 'sessions' => [['date' => $today, 'exercises' => [$item]]]];
@@ -548,7 +563,7 @@ it('mantiene la dificultad solicitada desde Gemini hasta el plan aunque cambie l
     $this->postJson($url, $op, $headers)->assertOk()->assertJsonPath('data.assignment.exercise.id', $res['assignment']['exercise']['id']);
     $this->putJson('/api/v1/preferences', ['training_difficulty' => 'intermediate'], $headers)->assertSuccessful();
     expect($session->fresh()->replacements_used)->toBe(1)->and($plan->fresh()->training_difficulty)->toBe($difficulty);
-    expect(app(\App\Services\TrainingReports::class)->adherence($user)['completed'])->toBe(0);
+    expect(app(TrainingReports::class)->adherence($user)['completed'])->toBe(0);
     expect($res['assignment']['exercise']['instructions'])->not->toBeEmpty()->and($res['assignment']['sets'])->toBe($maxSets);
     for ($n = 1; $n <= $maxSets; $n++) {
         if ($n === 2) {
@@ -562,12 +577,12 @@ it('mantiene la dificultad solicitada desde Gemini hasta el plan aunque cambie l
     $this->postJson("$path/complete", [], $headers)->assertOk();
     $this->postJson($url, $newOp, $headers)->assertConflict();
     $this->getJson($path, $headers)->assertOk()->assertJsonPath('data.replacements_used', 1);
-    expect(app(\App\Services\TrainingReports::class)->adherence($user)['completed'])->toBe(1);
+    expect(app(TrainingReports::class)->adherence($user)['completed'])->toBe(1);
     if ($difficulty === 'hard') {
         $this->travel(7)->days();
-        app(\App\Services\ProfileEditor::class)->preferences($user, ['training_difficulty' => 'hard']);
+        app(ProfileEditor::class)->preferences($user, ['training_difficulty' => 'hard']);
         $this->mock(GeminiClient::class)->shouldReceive('generate')->once()
-            ->andThrow(new \Symfony\Component\HttpKernel\Exception\HttpException(503, 'provider_error'));
+            ->andThrow(new HttpException(503, 'provider_error'));
         $recovered = app(PlanGeneration::class)->generate($user->fresh(), fake()->uuid());
         expect($recovered->status)->toBe('validated');
         $next = $recovered->aiPlanRecommendations()->sole()->trainingPlan;
@@ -584,13 +599,13 @@ it('serializa reemplazos y conserva el cupo ante rechazos o reintentos', functio
         'exercise_id' => Exercise::where('slug', 'sentadilla')->sole()->id,
         'position' => 1, 'sets' => 2, 'base_reps' => 5, 'prescription' => ['measurement' => 'reps'],
     ]));
-    $service = app(\App\Services\WorkoutReplacement::class);
+    $service = app(WorkoutReplacement::class);
     $replace = fn () => $service->replace($this->user, $session->id, $item->id, $item->fresh()->exercise_id, fake()->uuid());
     expect($replace)->toThrow(DomainException::class);
     $this->ledger->start($this->user, $session->id);
     $other = User::create(['name' => 'Otro']);
     expect(fn () => $service->replace($other, $session->id, $item->id, $item->exercise_id, fake()->uuid()))
-        ->toThrow(\Illuminate\Database\Eloquent\ModelNotFoundException::class);
+        ->toThrow(ModelNotFoundException::class);
     $constraint = DB::table('user_health_constraints')->insertGetId(['user_id' => $this->user->id, 'description' => 'Pendiente de clasificar']);
     expect($replace)->toThrow(DomainException::class)->and($session->fresh()->replacements_used)->toBe(0);
     DB::table('user_health_constraints')->where('id', $constraint)->delete();
@@ -643,7 +658,7 @@ it('preserva el ajuste por penalización y las series de otra asignación', func
     $log = $results->record($this->user, $session->id, ['workout_exercise_id' => $second->id, 'set_number' => 1, 'reps' => 5]);
     $before = $results->progress($session->fresh());
     $adjustment = $first->workoutPenaltyApplication->getAttributes();
-    app(\App\Services\WorkoutReplacement::class)->replace($this->user, $session->id, $first->id, $first->exercise_id, fake()->uuid());
+    app(WorkoutReplacement::class)->replace($this->user, $session->id, $first->id, $first->exercise_id, fake()->uuid());
     expect($results->progress($session->fresh()))->toBe($before)
         ->and($second->exerciseSetLogs()->sole()->id)->toBe($log->id)
         ->and($first->fresh()->workoutPenaltyApplication->getAttributes())->toBe($adjustment)
