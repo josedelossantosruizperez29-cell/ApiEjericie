@@ -1,37 +1,38 @@
 # Plan — Modalidades de entrenamiento Fit Home
 
-Estado: en ejecución.
+Estado: backend completo y desplegado; app móvil publicada en staging (parche #7).
+Validación en dispositivo Android: **pendiente** (no hay dispositivo conectado).
 
 ## Backend (Laravel)
 
-1. [ ] Migración aditiva `training_mode` (user_preferences / ai_generations / training_plans) + checks + backfill determinista.
-2. [ ] `TrainingMode` service (valores, resolución, filtro de catálogo, equipamiento implícito).
-3. [ ] `ExerciseCatalog::eligible()` acepta modalidad; modo bodyweight excluye máquina/equipamiento.
-4. [ ] `PreferenceRequest` + `ProfileEditor` + `GET /preferences` (valor por defecto `null`).
-5. [ ] `PlanGeneration`: exige modalidad, la guarda en `ai_generations`, la incluye en contexto/prompt y en recuperación.
-6. [ ] `GeneratedPlanImporter`: valida contra catálogo filtrado y persiste `training_plans.training_mode`.
-7. [ ] `WorkoutReplacement`: usa la modalidad del plan (fallback derivado del plan para planes antiguos).
-8. [ ] `CatalogController`: filtra por modalidad guardada (o `?training_mode=`).
-9. [ ] Tests Pest (25 escenarios) + rollback de migración.
-10. [ ] Pint, suite completa, commits.
+1. [x] Migración aditiva `training_mode` (user_preferences / ai_generations / training_plans) + checks + backfill determinista.
+2. [x] `TrainingMode` service (valores, resolución, filtro de catálogo, equipamiento implícito).
+3. [x] `ExerciseCatalog::eligible()` acepta modalidad; modo bodyweight excluye máquina/equipamiento.
+4. [x] `PreferenceRequest` + `ProfileEditor` + `GET /preferences` (valor por defecto `null`).
+5. [x] `PlanGeneration`: exige modalidad, la guarda en `ai_generations`, la incluye en contexto/prompt y en recuperación.
+6. [x] `GeneratedPlanImporter`: valida contra catálogo filtrado y persiste `training_plans.training_mode`.
+7. [x] `WorkoutReplacement`: usa la modalidad del plan (fallback derivado del plan para planes antiguos).
+8. [x] `CatalogController`: filtra por modalidad guardada (o `?training_mode=`).
+9. [x] Tests Pest (18 pruebas / 25 escenarios) + rollback de migración.
+10. [x] Pint, suite completa (61 pruebas), commits.
 
 ## Producción
 
-11. [ ] Conexión Supabase (pooler IPv4) verificada y respaldo lógico previo.
-12. [ ] `migrate --force` en Supabase + verificación de columnas/registros.
-13. [ ] Push API → Render → verificación real (health + lectura/escritura + catálogo filtrado).
+11. [x] Conexión Supabase vía pooler IPv4 y respaldo lógico verificado con restauración completa.
+12. [x] `migrate --force` en Supabase (proyecto `nuylkjqbndpghpnzlqdc`) + verificación de columnas/registros.
+13. [x] Push API (`07407cd`) → Render → verificación real (health, preferencias, catálogo filtrado, plan antiguo intacto).
 
 ## Flutter
 
-14. [ ] Pantalla de selección de modalidad post-onboarding (Gate).
-15. [ ] Configuración → Entrenamiento → Modalidad (mostrar/cambiar).
-16. [ ] Guardas en generación de plan + indicador de modalidad.
-17. [ ] Invalidación de caché selectiva.
-18. [ ] Tests Flutter (formato, analyze, test).
-19. [ ] Commits + push main.
+14. [x] Pantalla de selección de modalidad post-onboarding (Gate).
+15. [x] Configuración → Entrenamiento → Modalidad (mostrar/cambiar).
+16. [x] Guardas en generación de plan + indicador de modalidad.
+17. [x] Invalidación de caché selectiva.
+18. [x] Tests Flutter (formato, analyze, 63 pruebas).
+19. [x] Commits + push main (`8f0724a`).
 
 ## OTA
 
-20. [ ] Tag staging → GitHub Actions → parche Shorebird staging.
-21. [ ] Validación real en Android (o dejar pendiente explícito).
-22. [ ] Tag stable solo con validación real.
+20. [x] Tag `ota/staging/v1.0.0-p7` → GitHub Actions → parche Shorebird **#7** en staging (ARM64).
+21. [ ] Validación real en Android — **pendiente**: no hay dispositivo conectado; no se publica stable.
+22. [ ] Tag stable — bloqueado hasta completar y verificar la validación en Android.

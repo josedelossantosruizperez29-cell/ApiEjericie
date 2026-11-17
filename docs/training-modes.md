@@ -127,6 +127,22 @@ FIT_TEST_HOST=127.0.0.1 FIT_TEST_PORT=5432 FIT_TEST_USER=postgres \
 
 ## Despliegue y recuperación
 
+### Estado desplegado (16/17 de noviembre de 2026)
+
+- Migración `2026_11_18_000000_add_training_mode` aplicada en Supabase
+  (`nuylkjqbndpghpnzlqdc`) mediante el pooler IPv4, tras un respaldo lógico
+  restaurado y verificado en PostgreSQL 17 (12 usuarios, 26 ejercicios, 2 planes,
+  8 sesiones).
+- Backfill: el único perfil con preferencias (sin equipamiento) quedó en
+  `bodyweight`; las 2 planes y 7 generaciones anteriores conservaron
+  `training_mode = NULL` y todas las filas/UUID/relaciones intactas.
+- API desplegada en Render (`https://apiejericie.onrender.com`); `/health` OK.
+- Verificado en producción con un invitado de prueba: `PUT /preferences`
+  confirma `machine`/`bodyweight`, el catálogo elegible excluye máquinas en
+  `bodyweight` incluso poseyendo la EVO 500, incluye `press-sentado` en
+  `machine`, excluye `curl-predicador` (inactivo) y responde `422` a valores
+  inválidos.
+
 1. `php artisan test`, `./vendor/bin/pint --dirty`.
 2. Migración en Supabase con `php artisan migrate --force` usando una conexión válida
    (si la conexión directa es solo IPv6, usar el pooler IPv4 de Supabase con el usuario
