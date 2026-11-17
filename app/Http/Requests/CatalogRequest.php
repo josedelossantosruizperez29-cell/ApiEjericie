@@ -15,6 +15,7 @@ class CatalogRequest extends FormRequest
             'measurement' => 'sometimes|in:reps,time,distance',
             'equipment_id' => 'sometimes|uuid',
             'eligible' => 'sometimes|boolean',
+            'training_mode' => 'sometimes|in:machine,bodyweight',
         ];
     }
 }

@@ -41,7 +41,7 @@ class WorkoutReplacement
             $session->increment('replacements_used');
             $result = [
                 'session_id' => $sessionId, 'previous_exercise_id' => $previousId,
-                'assignment' => $item->load('exercise.muscleGroups', 'exerciseSetLogs', 'workoutPenaltyApplication')->toArray(),
+                'assignment' => $item->load('exercise.muscleGroups', 'exercise.requiredEquipment', 'exerciseSetLogs', 'workoutPenaltyApplication')->toArray(),
                 'replacements_used' => $session->replacements_used, 'replacements_remaining' => 3 - $session->replacements_used,
             ];
             DB::table('workout_replacements')->insert([
@@ -57,10 +57,11 @@ class WorkoutReplacement
     {
         $original = $item->exercise;
         $difficulty = $session->trainingPlan->training_difficulty;
+        $mode = TrainingMode::forPlan($session->trainingPlan);
         $limits = TrainingDifficulty::limits($user, $difficulty);
         $applied = $item->workoutPenaltyApplication?->applied['base_reps'] ?? $item->base_reps;
         $primary = $original->exerciseMuscleGroups()->where('role', 'primary')->pluck('muscle_group_id');
-        $candidates = app(ExerciseCatalog::class)->eligible($user, $difficulty)
+        $candidates = app(ExerciseCatalog::class)->eligible($user, $difficulty, $mode)
             ->where('measurement', $original->measurement)
             ->whereNotIn('id', $session->workoutExercises()->select('exercise_id'))
             ->where(function ($q) use ($original, $primary) {

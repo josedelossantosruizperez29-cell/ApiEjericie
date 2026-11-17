@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\AiPlanRecommendation;
+use App\Models\Exercise;
 use App\Models\TrainingPlan;
 use App\Models\User;
 use App\Models\WorkoutExercise;
@@ -54,7 +55,7 @@ class GeneratedPlanImporter
                         }
                     }
 
-                    return $this->persist($user, $payload, $generation->training_difficulty);
+                    return $this->persist($user, $payload, $generation->training_difficulty, $generation->training_mode);
                 });
                 $record->forceFill(['training_plan_id' => $result->id, 'recommendation' => ['plan_version' => $result->version],
                     'validation_status' => 'accepted', 'reason' => 'validated_v1']);
@@ -73,18 +74,19 @@ class GeneratedPlanImporter
         }, 3);
     }
 
-    private function persist(User $user, array $payload, string $difficulty): TrainingPlan
+    private function persist(User $user, array $payload, string $difficulty, ?string $mode): TrainingPlan
     {
         $goal = $user->userGoals()->where('status', 'active')->find($payload['goal_id']);
         $onboarding = $user->userOnboarding;
         if (! $goal || ! $onboarding?->session_minutes || ! $onboarding->weekly_availability) {
             $this->invalid('user_context');
         }
+        $catalog = app(ExerciseCatalog::class)->eligible($user, $difficulty, $mode)->get()->keyBy('id');
+        $mode ??= $this->deriveMode($payload);
         $plan = $user->trainingPlans()->save((new TrainingPlan)->forceFill([
-            'training_difficulty' => $difficulty, 'goal_id' => $goal->id, 'starts_on' => $payload['starts_on'], 'ends_on' => $payload['ends_on'], 'source' => 'ai', 'status' => 'active',
+            'training_difficulty' => $difficulty, 'training_mode' => $mode, 'goal_id' => $goal->id, 'starts_on' => $payload['starts_on'], 'ends_on' => $payload['ends_on'], 'source' => 'ai', 'status' => 'active',
             'version' => 1 + $user->trainingPlans()->where('starts_on', $payload['starts_on'])->max('version'),
         ]));
-        $catalog = app(ExerciseCatalog::class)->eligible($user, $difficulty)->get()->keyBy('id');
         $limits = TrainingDifficulty::limits($user, $difficulty);
         foreach ($payload['sessions'] as $day) {
             if (count($day['exercises']) > $limits['max_exercises']) {
@@ -127,6 +129,16 @@ class GeneratedPlanImporter
         }
 
         return $plan;
+    }
+
+    /** Legacy generations have no snapshot: derive the modality from the exercises the model returned. */
+    private function deriveMode(array $payload): string
+    {
+        $ids = collect($payload['sessions'])->flatMap(fn ($day) => collect($day['exercises'])->pluck('id'));
+
+        return Exercise::query()->whereIn('id', $ids)->where('category', 'machine')->exists()
+            ? TrainingMode::MACHINE
+            : TrainingMode::BODYWEIGHT;
     }
 
     private function invalid(string $field): never

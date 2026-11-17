@@ -7,6 +7,7 @@ use App\Http\Resources\ApiResult;
 use App\Models\Equipment;
 use App\Models\Exercise;
 use App\Services\ExerciseCatalog;
+use App\Services\TrainingMode;
 
 class CatalogController
 {
@@ -17,7 +18,8 @@ class CatalogController
 
     public function exercises(CatalogRequest $r, ExerciseCatalog $catalog)
     {
-        $query = $r->boolean('eligible') || $r->routeIs('eligible') ? $catalog->eligible($r->user()) : Exercise::where('active', true);
+        $mode = $r->validated('training_mode') ?? TrainingMode::forUser($r->user());
+        $query = $r->boolean('eligible') || $r->routeIs('eligible') ? $catalog->eligible($r->user(), mode: $mode) : Exercise::where('active', true);
         foreach (['level' => 'difficulty', 'category' => 'category', 'measurement' => 'measurement'] as $param => $column) {
             if ($r->filled($param)) {
                 $query->where($column, $r->validated($param));

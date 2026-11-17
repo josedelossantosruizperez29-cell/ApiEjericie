@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Builder;
 class ExerciseCatalog
 {
     /** Candidate set for a future plan validator. Unknown free-text restrictions require human review. */
-    public function eligible(User $user, string $difficulty = 'intermediate'): Builder
+    public function eligible(User $user, string $difficulty = 'intermediate', ?string $mode = null): Builder
     {
         $profile = $user->userProfile;
         $levels = match ($profile?->level) {
@@ -34,6 +34,6 @@ class ExerciseCatalog
             $query->whereNotIn('movement', $constraint->avoided_movements ?? []);
         }
 
-        return $query;
+        return TrainingMode::scope($query, $mode);
     }
 }
